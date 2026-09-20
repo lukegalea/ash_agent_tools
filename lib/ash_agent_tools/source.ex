@@ -83,15 +83,16 @@ defmodule AshAgentTools.Source do
   defp fallback_fields(line) when is_integer(line), do: %{line: line}
   defp fallback_fields(_), do: %{}
 
+  # No catch-all clauses here on purpose: unexpected shapes from the
+  # :erl_anno accessors raise FunctionClauseError, which `anno_fields/1`
+  # rescues into `fallback_fields/1`. That keeps the defensive net in one
+  # place (and keeps Dialyzer's coverage analysis meaningful).
   defp put_file(fields, :undefined), do: fields
   defp put_file(fields, file) when is_list(file), do: Map.put(fields, :file, List.to_string(file))
   defp put_file(fields, file) when is_binary(file), do: Map.put(fields, :file, file)
-  defp put_file(fields, _), do: fields
 
   defp put_line(fields, line) when is_integer(line), do: Map.put(fields, :line, line)
-  defp put_line(fields, _), do: fields
 
   defp put_column(fields, :undefined), do: fields
   defp put_column(fields, column) when is_integer(column), do: Map.put(fields, :column, column)
-  defp put_column(fields, _), do: fields
 end

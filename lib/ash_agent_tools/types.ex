@@ -40,16 +40,14 @@ defmodule AshAgentTools.Types do
   end
 
   def normalize(type) when is_atom(type) do
-    cond do
-      String.starts_with?(Atom.to_string(type), "Elixir.") ->
-        case Enum.find(@short_names, fn {_name, module} -> module == type end) do
-          {name, _module} -> Atom.to_string(name)
-          nil -> module_name(type)
-        end
-
+    if String.starts_with?(Atom.to_string(type), "Elixir.") do
+      case Enum.find(@short_names, fn {_name, module} -> module == type end) do
+        {name, _module} -> Atom.to_string(name)
+        nil -> module_name(type)
+      end
+    else
       # plain atoms (:string, :integer, ...) are already the short form
-      true ->
-        Atom.to_string(type)
+      Atom.to_string(type)
     end
   end
 

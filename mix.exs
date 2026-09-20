@@ -23,7 +23,15 @@ defmodule AshAgentTools.MixProject do
       deps: deps(),
       package: package(),
       source_url: "https://github.com/lukegalea/ash_agent_tools",
-      docs: docs()
+      docs: docs(),
+
+      # The mix tasks in this package call into the Mix module, so the PLT
+      # must include it (it is not part of the default PLT core). The ignore
+      # file documents the deliberate defensive clause Dialyzer flags.
+      dialyzer: [
+        plt_add_apps: [:mix],
+        ignore_warnings: "dialyzer.ignore-warnings.exs"
+      ]
     ]
   end
 
@@ -50,7 +58,11 @@ defmodule AshAgentTools.MixProject do
       # Production users of Ash.Policy.Authorizer choose their own solver
       # (picosat_elixir is the usual pick) — this package itself never
       # evaluates policies.
-      {:simple_sat, "~> 0.1", only: [:dev, :test]}
+      {:simple_sat, "~> 0.1", only: [:dev, :test]},
+
+      # Dev hygiene: static analysis and type checking.
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
