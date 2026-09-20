@@ -2,12 +2,14 @@
 
 AshAgentTools is a read-only introspection layer over Ash. It answers an
 agent's questions about a project's domains, resources, and actions as plain
-JSON-encodable maps, validates action inputs without running anything, and
-lists the policies that can forbid an action. It ships as **regular library
-code plus this file** — deliberately *not* as registered MCP tools or any
-other tool-surface integration, which keeps it usable from `project_eval`,
-Livebook, Mix tasks, or any future hosted tool-definition API. Read these
-rules before using it; do not assume prior knowledge of the API.
+JSON-encodable maps, validates action inputs without running anything, lists
+the policies that can forbid an action, searches symbol names across
+resources, and diffs semantic-manifest documents. It ships as **regular
+library code plus this file** — deliberately *not* as registered MCP tools
+or any other tool-surface integration, which keeps it usable from
+`project_eval`, Livebook, Mix tasks, or any future hosted tool-definition
+API. Read these rules before using it; do not assume prior knowledge of the
+API.
 
 ## The read-only contract
 
@@ -37,6 +39,19 @@ rules before using it; do not assume prior knowledge of the API.
    human-readable form plus general guidance. It is a guidance stub, not an
    evaluator — get real verdicts from `Ash.can?/3` or the generated
    `can_<action>?` interfaces.
+5. **Lost the full name?** `semantic_search/2` finds attributes, actions,
+   calculations, and relationships across loaded resources by name substring
+   (case-insensitive; optional `kinds:` filter), each hit with its declaring
+   resource, normalized type, and source location. Useful between steps 1
+   and 2, when you know a fragment like `"tag"` but not where it lives.
+6. **Track DSL changes across revisions**: `diff_manifest/2` diffs two
+   semantic-manifest JSON documents (see the Semantic Manifest v0 RFC for
+   the id grammar, `ash:v0:<Module>#<dsl_path>/<name>`) by stable symbol id
+   into `added`/`removed`/`changed` sets. "Changed" compares content only —
+   `hashes`, `span`, and `property_spans` are ignored — so a moved
+   declaration is unchanged. Works on hand-authored manifest documents
+   today; exported manifests (the RFC's `--semantic` emitter) diff the same
+   way once the exporter exists.
 
 Compose these freely: the typical loop is describe → validate → execute →
 on `Forbidden`, explain_forbidden → adjust inputs or actor.
@@ -50,13 +65,18 @@ For agents without code execution:
 - `mix ash_agent.describe MyApp.Post create` — action description
 - `mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'` — validation
   report
+- `mix ash_agent.search TERM [--kind KIND]...` — symbol search across loaded
+  resources; prints `{"query","kinds","count","results"}`
+- `mix ash_agent.diff OLD NEW` — semantic-manifest diff report (does not
+  boot your application; pure file processing)
 
-Both tasks run `app.start`, print compact JSON by default (`--pretty` for
-humans), load the domains your app registers under
-`config :my_app, ash_domains: [...]`, and guarantee **pure-JSON stdout**:
-Logger output from application start (repo wiring, banners, debug logs) is
-suppressed for the duration of the task. Flags: `--out FILE` writes the
-JSON to a file instead of stdout; `--verbose` restores the logs (breaking
+All tasks run `app.start` (except `ash_agent.diff`, which needs no
+application), print compact JSON by default (`--pretty` for humans), and
+guarantee **pure-JSON stdout**: Logger output from application start (repo
+wiring, banners, debug logs) is suppressed for the duration of the task.
+The describe/search tasks load the domains your app registers under
+`config :my_app, ash_domains: [...]`. Flags: `--out FILE` writes the JSON
+to a file instead of stdout; `--verbose` restores the logs (breaking
 pure-JSON stdout).
 
 ## Output conventions
@@ -77,7 +97,12 @@ pure-JSON stdout).
   they are best-effort and `nil` where unavailable.
 - Types are normalized to readable strings: `:string`, `array<string>`,
   `ci_string` (builtins report their short name; extensions keep their
-  module name).
+  module name). Search hits on actions/relationships report the action /
+  relationship type instead of a value type.
+- `diff_manifest/2` reports field-level changes with `old`/`new` values; a
+  field missing on one side reports `null` there. Symbol ids follow the RFC
+  §4.3 grammar, so policies (which have no name) appear as ordinal ids like
+  `ash:v0:Mod#policies/0` — those ids are position-dependent by design.
 
 ## Integration posture
 
