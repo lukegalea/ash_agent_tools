@@ -62,7 +62,7 @@ defmodule Mix.Tasks.AshAgent.Search do
       # Resource modules load lazily; load the domains configured the way
       # ash projects declare them (`config :my_app, ash_domains: [...]`) so
       # the search covers the whole declared surface.
-      load_configured_domains()
+      AshAgentTools.TaskOutput.load_configured_domains()
 
       case positional do
         [term] ->
@@ -105,22 +105,5 @@ defmodule Mix.Tasks.AshAgent.Search do
           "Unknown --kind #{inspect(kind)}. Valid kinds: #{inspect(valid)} (strings accepted too)"
         )
     end)
-  end
-
-  defp load_configured_domains do
-    app = Mix.Project.config()[:app]
-
-    for domain <- Application.get_env(app, :ash_domains, []) do
-      with {:module, domain} <- Code.ensure_loaded(domain),
-           true <- function_exported?(domain, :spark_is, 0) do
-        for resource <- Ash.Domain.Info.resources(domain) do
-          Code.ensure_loaded(resource)
-        end
-      else
-        _ -> :ok
-      end
-    end
-
-    :ok
   end
 end

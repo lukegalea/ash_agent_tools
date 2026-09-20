@@ -9,7 +9,8 @@
   AshAgentTools.Test.Post,
   AshAgentTools.Test.Author,
   AshAgentTools.Test.Comment,
-  AshAgentTools.Test.Guarded
+  AshAgentTools.Test.Guarded,
+  AshAgentTools.Test.ContextProbe
 ]
 |> Enum.each(&Code.ensure_loaded!/1)
 

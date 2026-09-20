@@ -59,4 +59,31 @@ defmodule AshAgentTools.TaskOutput do
         File.write!(file, json <> "\n")
     end
   end
+
+  @doc """
+  Loads the resource modules behind the domains the host application
+  registers the way ash projects declare them
+  (`config :my_app, ash_domains: [...]`).
+
+  Resource modules load lazily, so a freshly booted application does not
+  necessarily have them in memory; the introspection API is a pure function
+  over *loaded* modules. Tasks that report on resources call this after
+  `app.start`.
+  """
+  def load_configured_domains do
+    app = Mix.Project.config()[:app]
+
+    for domain <- Application.get_env(app, :ash_domains, []) do
+      with {:module, domain} <- Code.ensure_loaded(domain),
+           true <- function_exported?(domain, :spark_is, 0) do
+        for resource <- Ash.Domain.Info.resources(domain) do
+          Code.ensure_loaded(resource)
+        end
+      else
+        _ -> :ok
+      end
+    end
+
+    :ok
+  end
 end

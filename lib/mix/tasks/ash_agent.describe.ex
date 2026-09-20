@@ -66,7 +66,7 @@ defmodule Mix.Tasks.AshAgent.Describe do
       # Resource modules load lazily; make the no-argument discovery summary
       # useful by loading the domains configured the way ash projects declare
       # them (`config :my_app, ash_domains: [...]`).
-      load_configured_domains()
+      AshAgentTools.TaskOutput.load_configured_domains()
 
       json =
         case {positional, opts[:action]} do
@@ -90,23 +90,6 @@ defmodule Mix.Tasks.AshAgent.Describe do
       |> Jason.encode!(pretty: !!opts[:pretty])
       |> AshAgentTools.TaskOutput.write_json(opts)
     end)
-  end
-
-  defp load_configured_domains do
-    app = Mix.Project.config()[:app]
-
-    for domain <- Application.get_env(app, :ash_domains, []) do
-      with {:module, domain} <- Code.ensure_loaded(domain),
-           true <- function_exported?(domain, :spark_is, 0) do
-        for resource <- Ash.Domain.Info.resources(domain) do
-          Code.ensure_loaded(resource)
-        end
-      else
-        _ -> :ok
-      end
-    end
-
-    :ok
   end
 
   defp summary do

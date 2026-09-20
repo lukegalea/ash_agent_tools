@@ -15,5 +15,6 @@ defmodule AshAgentTools.Test.Domain do
     resource AshAgentTools.Test.Author
     resource AshAgentTools.Test.Comment
     resource AshAgentTools.Test.Guarded
+    resource AshAgentTools.Test.ContextProbe
   end
 end

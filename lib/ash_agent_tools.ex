@@ -33,6 +33,10 @@ defmodule AshAgentTools do
     * `explain_forbidden/2` — list the policies that can deny an action
     * `semantic_search/2` — find symbols by name substring across resources
     * `diff_manifest/2` — structural diff of two semantic-manifest JSON files
+    * `context/3` — the Ash resource/symbol at a file position, plus what
+      references it (collapses the grep → read → re-grep loop into one call)
+    * `eval_docs/0` — the exact snippets for using this API in-VM, without a
+      mix boot, when your session is already attached to a running node
 
   All functions raise `ArgumentError` when pointed at something that is not a
   loaded Ash resource (or an action that does not exist); discovery functions
@@ -47,6 +51,7 @@ defmodule AshAgentTools do
   $ mix ash_agent.validate MyApp.Post create '{"title": "Hello"}'
   $ mix ash_agent.search tag
   $ mix ash_agent.diff old.json new.json
+  $ mix ash_agent.context lib/my_app/accounts/post.ex:42
   ```
 
   See `usage-rules.md` at the package root for agent-oriented guidance.
@@ -78,7 +83,7 @@ defmodule AshAgentTools do
   ## Examples
 
       iex> AshAgentTools.list_resources() |> Enum.map(&AshAgentTools.Registry.module_name/1)
-      ["AshAgentTools.Test.Author", "AshAgentTools.Test.Comment", "AshAgentTools.Test.Guarded", "AshAgentTools.Test.Post"]
+      ["AshAgentTools.Test.Author", "AshAgentTools.Test.Comment", "AshAgentTools.Test.ContextProbe", "AshAgentTools.Test.Guarded", "AshAgentTools.Test.Post"]
 
   """
   @spec list_resources() :: [module()]
@@ -228,4 +233,101 @@ defmodule AshAgentTools do
   """
   @spec diff_manifest(String.t(), String.t()) :: map()
   def diff_manifest(old_path, new_path), do: AshAgentTools.Diff.diff_manifest(old_path, new_path)
+
+  @doc """
+  Returns the Ash context for a position in a source file.
+
+  Given a repo-relative (or absolute) file path and a 1-based line, returns
+  `{:ok, report}` describing which loaded Ash resource/domain declares at or
+  near that position, which symbol's declaration span covers the line, the
+  nearest symbols, what references the matched symbol (accepting actions,
+  code interfaces, relationships), and — when semantic manifests exist —
+  manifest-derived relations for the module. A miss is graceful: `{:ok, ...}`
+  with `match: nil` and/or `module: nil`, never a raise.
+
+  This is the one-call replacement for the grep → read → re-grep loop: point
+  it at wherever the cursor (or a compiler error, or a diff hunk) landed.
+  See `AshAgentTools.Context.context/3` for the full report contract and
+  options.
+
+  ## Examples
+
+      iex> {:ok, report} = AshAgentTools.context("test/support/context_probe.ex", 1)
+      iex> {report.match, report.module.module}
+      {nil, AshAgentTools.Test.ContextProbe}
+
+      iex> {:ok, report} = AshAgentTools.context("test/support/context_probe.ex", 21)
+      iex> {report.match.kind, report.match.name}
+      {:attribute, :excerpt}
+
+  """
+  @spec context(String.t(), pos_integer(), keyword()) :: {:ok, map()}
+  def context(file, line, opts \\ []), do: AshAgentTools.Context.context(file, line, opts)
+
+  @doc """
+  Returns the snippet an agent should evaluate to use this API in-VM.
+
+  Per-query `mix` boots cost seconds to minutes (cold compile, dependency
+  resolution); a node that already runs the application has everything the
+  tools need in memory. When your session is attached to such a node —
+  `iex --server`/`iex -S mix phx.server`, a Tidewave `project_eval`-style
+  tool, Livebook — evaluate the returned string's snippets directly instead
+  of shelling out to `mix ash_agent.*`: they name the facade module, every
+  public function with an arity, and a worked example, so no mix boot and no
+  extra context is needed.
+
+  The returned string is plain text, stable in shape, and safe to paste
+  verbatim into an agent transcript.
+
+  ## Examples
+
+      iex> docs = AshAgentTools.eval_docs()
+      iex> String.contains?(docs, "AshAgentTools.describe_action") and String.contains?(docs, "AshAgentTools.context")
+      true
+
+      iex> AshAgentTools.eval_docs() =~ "do not"
+      true
+
+  """
+  @spec eval_docs() :: String.t()
+  def eval_docs do
+    """
+    AshAgentTools is loaded in this VM already — call it directly, do not
+    shell out to `mix ash_agent.*`: a per-query mix boot costs seconds to
+    minutes, while these calls are instant. All functions are read-only
+    (nothing executes against your data) and return plain JSON-encodable
+    maps.
+
+    Facade functions on the `AshAgentTools` module:
+
+        AshAgentTools.list_domains()                          # loaded Ash domains
+        AshAgentTools.list_resources()                        # loaded Ash resources
+        AshAgentTools.describe_resource(MyApp.Post)           # fields, relationships, actions, source locations
+        AshAgentTools.describe_action(MyApp.Post, :create)    # input contract, return shape, code interfaces
+        AshAgentTools.validate_input(MyApp.Post, :create, %{"title" => "Hi"})
+                                                              # cast + validate WITHOUT running: %{valid?: ..., errors: [...], normalized_inputs: ...}
+        AshAgentTools.explain_forbidden(MyApp.Post, :create)  # policies that can deny the action (guidance; use Ash.can?/3 for verdicts)
+        AshAgentTools.semantic_search("tag")                  # symbol hits across resources: resource, kind, name, type, source
+        AshAgentTools.diff_manifest("old.json", "new.json")   # semantic-manifest diff by stable symbol id
+        AshAgentTools.context("lib/my_app/accounts/post.ex", 42)
+                                                              # {:ok, %{module, match, nearest, references, manifests}} for a file position
+
+    Helper module: `AshAgentTools.Registry` (`list_domains/0`,
+    `list_resources/0`, `domains_for_resource/1`, `module_name/1`).
+
+    Example loop — describe, validate, then execute through the project's
+    own code interface:
+
+        iex> AshAgentTools.describe_action(MyApp.Post, :create).input.required
+        [:title]
+        iex> report = AshAgentTools.validate_input(MyApp.Post, :create, %{"title" => "Hi", "score" => "7"})
+        iex> {report.valid?, report.normalized_inputs["score"]}
+        {true, 7}
+        iex> MyApp.create_post!("Hi")  # the project's code interface, not this library
+
+    `AshAgentTools.context/3` collapses the grep -> read -> re-grep loop:
+    point it at any file:line (a compiler error, a diff hunk, your cursor)
+    and read `report.module`, `report.match`, and `report.references`.
+    """
+  end
 end

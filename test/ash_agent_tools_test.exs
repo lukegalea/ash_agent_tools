@@ -6,6 +6,7 @@ defmodule AshAgentToolsTest do
   use ExUnit.Case, async: true
 
   doctest AshAgentTools
+  doctest AshAgentTools.Context
   doctest AshAgentTools.Search
   doctest AshAgentTools.Types
 
@@ -561,6 +562,268 @@ defmodule AshAgentToolsTest do
 
       File.write!(path, contents)
       path
+    end
+  end
+
+  describe "context/2" do
+    @probe "test/support/context_probe.ex"
+    @post "test/support/post.ex"
+    @domain_file "test/support/domain.ex"
+
+    test "resolves the symbol at its declaration line" do
+      {:ok, report} = AshAgentTools.context(@probe, line_of!(@probe, "attribute :excerpt"))
+
+      assert report.file == @probe
+      assert report.module.module == AshAgentTools.Test.ContextProbe
+      assert report.module.kind == :resource
+      assert report.module.domain == AshAgentTools.Test.Domain
+      assert report.match.kind == :attribute
+      assert report.match.name == :excerpt
+      assert report.match.type == "string"
+      assert report.match.source.file =~ "context_probe.ex"
+      assert report.match.source.line == line_of!(@probe, "attribute :excerpt")
+    end
+
+    test "resolves a symbol inside a multi-line declaration" do
+      line = line_of!(@probe, "allow_nil? false")
+      {:ok, report} = AshAgentTools.context(@probe, line)
+
+      assert report.match.name == :excerpt
+      assert report.match.span.start_line <= line
+      assert line <= report.match.span.end_line
+
+      # and the position counts as inside it: distance zero
+      nearest_excerpt = Enum.find(report.nearest, &(&1.name == :excerpt))
+      assert nearest_excerpt.distance == 0
+    end
+
+    test "reports the containing action inside a multi-line action block" do
+      line = line_of!(@probe, "accept [:excerpt, :memo]")
+      {:ok, report} = AshAgentTools.context(@probe, line)
+
+      assert report.match.kind == :action
+      assert report.match.name == :stamp
+      assert report.match.type == :create
+    end
+
+    test "misses cleanly before the first declaration, keeping the module and nearest" do
+      {:ok, report} = AshAgentTools.context(@probe, 1)
+
+      assert {:ok, %{match: nil, nearest: nearest}} = {:ok, report}
+      assert report.module.module == AshAgentTools.Test.ContextProbe
+      assert nearest != []
+      assert Enum.all?(nearest, &(&1.distance > 0))
+
+      # nearest is sorted by distance, then line
+      distances = Enum.map(nearest, &{&1.distance, &1.line})
+      assert distances == Enum.sort(distances)
+    end
+
+    test "misses cleanly on files that no loaded Ash module declares" do
+      {:ok, report} = AshAgentTools.context("mix.exs", 1)
+
+      assert report.module == nil
+      assert report.match == nil
+      assert report.nearest == []
+      assert report.references == %{actions: [], code_interfaces: [], relationships: []}
+      assert report.manifests == nil
+    end
+
+    test "matches a domain file and its resource references" do
+      line = line_of!(@domain_file, "resource AshAgentTools.Test.Post")
+      {:ok, report} = AshAgentTools.context(@domain_file, line)
+
+      assert report.module.module == AshAgentTools.Test.Domain
+      assert report.module.kind == :domain
+      assert report.module.domain == nil
+      assert report.match.kind == :resource_reference
+      assert report.match.name == AshAgentTools.Test.Post
+    end
+
+    test "matches absolute paths" do
+      line = line_of!(@probe, "attribute :excerpt")
+
+      assert {:ok, report} = AshAgentTools.context(Path.expand(@probe), line)
+      assert report.match.name == :excerpt
+    end
+
+    test "reports actions accepting a matched attribute" do
+      {:ok, report} = AshAgentTools.context(@post, line_of!(@post, "attribute :title"))
+
+      assert report.match.name == :title
+      assert %{name: :create, type: :create} in report.references.actions
+    end
+
+    test "reports relationships wired through a matched attribute" do
+      {:ok, report} = AshAgentTools.context(@post, line_of!(@post, "uuid_primary_key :id"))
+
+      assert report.match.name == :id
+
+      assert %{
+               name: :comments,
+               type: :has_many,
+               destination: AshAgentTools.Test.Comment
+             } in report.references.relationships
+    end
+
+    test "reports code interfaces calling a matched action" do
+      {:ok, report} = AshAgentTools.context(@post, line_of!(@post, "action :feature"))
+
+      assert report.match.name == :feature
+
+      assert Enum.any?(report.references.code_interfaces, fn interface ->
+               interface.name == :feature and interface.domain == AshAgentTools.Test.Domain
+             end)
+    end
+
+    test "the :nearest option caps the list" do
+      {:ok, report} = AshAgentTools.context(@probe, 1, nearest: 2)
+      assert length(report.nearest) == 2
+
+      assert {:ok, report} = AshAgentTools.context(@probe, 1, nearest: 0)
+      assert report.nearest == []
+    end
+
+    test "attaches manifest-derived symbols and relations when manifests exist" do
+      path = manifest_fixture()
+      line = line_of!(@probe, "attribute :excerpt")
+
+      try do
+        {:ok, report} = AshAgentTools.context(@probe, line, manifests: [path])
+
+        assert report.manifests.paths == [path]
+
+        # manifest-derived values are the JSON document's strings, verbatim
+        assert Enum.map(report.manifests.symbols, & &1.name) |> Enum.sort() == [
+                 "excerpt",
+                 "stamp"
+               ]
+
+        # only edges touching this module's symbol ids, from any document
+        assert length(report.manifests.relations) == 2
+
+        assert Enum.all?(
+                 report.manifests.relations,
+                 &(&1.kind in ["accepts_input", "references_resource"])
+               )
+      after
+        File.rm(path)
+      end
+    end
+
+    test "is JSON-encodable end to end" do
+      line = line_of!(@post, "attribute :title")
+      {:ok, report} = AshAgentTools.context(@post, line)
+
+      assert is_binary(Jason.encode!(report))
+    end
+
+    test "raises on malformed input" do
+      assert_raise ArgumentError, ~r/non-blank string/, fn ->
+        AshAgentTools.context("   ", 1)
+      end
+
+      assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
+        AshAgentTools.context(@probe, 0)
+      end
+
+      assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
+        AshAgentTools.context(@probe, "12")
+      end
+
+      assert_raise ArgumentError, ~r/non-negative integer/, fn ->
+        AshAgentTools.context(@probe, 1, nearest: -1)
+      end
+    end
+
+    defp line_of!(file, needle) do
+      index =
+        file
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.find_index(&String.contains?(&1, needle))
+
+      if index == nil do
+        flunk("no line containing #{inspect(needle)} in #{file}")
+      end
+
+      index + 1
+    end
+
+    defp manifest_fixture do
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "ash_agent_tools_context_#{System.unique_integer([:positive])}.json"
+        )
+
+      contents =
+        Jason.encode!(%{
+          "manifest_version" => "0",
+          "module" => "AshAgentTools.Test.ContextProbe",
+          "module_kind" => "resource",
+          "symbols" => [
+            %{
+              "id" => "ash:v0:AshAgentTools.Test.ContextProbe#attributes/excerpt",
+              "kind" => "attribute",
+              "name" => "excerpt"
+            },
+            %{
+              "id" => "ash:v0:AshAgentTools.Test.ContextProbe#actions/stamp",
+              "kind" => "action",
+              "name" => "stamp"
+            }
+          ],
+          "relations" => [
+            %{
+              "from" => "ash:v0:AshAgentTools.Test.ContextProbe#actions/stamp",
+              "to" => "ash:v0:AshAgentTools.Test.ContextProbe#attributes/excerpt",
+              "kind" => "accepts_input"
+            },
+            %{
+              "from" => "ash:v0:Other.Thing#resource",
+              "to" => "ash:v0:AshAgentTools.Test.ContextProbe#actions/stamp",
+              "kind" => "references_resource"
+            },
+            %{
+              "from" => "ash:v0:Other.Thing#resource",
+              "to" => "ash:v0:Other.Other#resource",
+              "kind" => "contains"
+            }
+          ]
+        })
+
+      File.write!(path, contents)
+      path
+    end
+  end
+
+  describe "eval_docs/0" do
+    test "names every facade function the node already has loaded" do
+      docs = AshAgentTools.eval_docs()
+
+      for snippet <- [
+            "AshAgentTools.list_domains()",
+            "AshAgentTools.list_resources()",
+            "AshAgentTools.describe_resource(",
+            "AshAgentTools.describe_action(",
+            "AshAgentTools.validate_input(",
+            "AshAgentTools.explain_forbidden(",
+            "AshAgentTools.semantic_search(",
+            "AshAgentTools.diff_manifest(",
+            "AshAgentTools.context(",
+            "AshAgentTools.Registry"
+          ] do
+        assert String.contains?(docs, snippet)
+      end
+    end
+
+    test "steers the agent to in-VM evaluation over mix boots" do
+      docs = AshAgentTools.eval_docs()
+
+      assert docs =~ "read-only"
+      assert docs =~ "mix boot"
+      assert docs =~ "do not"
     end
   end
 
