@@ -12,10 +12,13 @@ defmodule Mix.Tasks.AshAgent.Search do
   Wraps `AshAgentTools.semantic_search/2`. Matching is case-insensitive on
   the symbol name; nothing is executed against your data.
 
-  **stdout is pure JSON, always.** Logger output from application start
-  (repo wiring, banners, debug logs) is suppressed while the task runs, so
-  the output pipes cleanly into a JSON parser; use `--verbose` if you want
-  the logs back.
+  **Boot contract: compile, don't start.** The task boots only
+  `app.config` + compile + the domains configured under
+  `config :my_app, ash_domains: [...]` — the application is *not started*
+  (no Oban queues, no projectors, no endpoints). See usage-rules.md.
+
+  **stdout is pure JSON, always.** Logger output is suppressed while the
+  task runs; use `--verbose` if you want the logs back.
 
   ## Usage
 
@@ -47,17 +50,37 @@ defmodule Mix.Tasks.AshAgent.Search do
 
   use Mix.Task
 
-  # app.start runs inside run/1 (not via @requirements) so the logger is
-  # silenced before the application boots.
+  # Compile-only boot: introspection needs compiled DSL state, not a
+  # running application (see the moduledoc and usage-rules.md).
+  @requirements ["app.config"]
+
   @impl Mix.Task
   def run(args) do
     {opts, positional, _invalid} =
       OptionParser.parse(args,
-        strict: [kind: :keep, pretty: :boolean, out: :string, verbose: :boolean]
+        strict: [
+          kind: :keep,
+          pretty: :boolean,
+          out: :string,
+          verbose: :boolean,
+          max_results: :integer
+        ]
       )
 
+    try do
+      run_search(opts, positional)
+    rescue
+      # over-limit refinement errors are answers too: structured JSON, not
+      # a crash
+      error in ArgumentError ->
+        AshAgentTools.TaskOutput.emit_json_error(%{error: Exception.message(error)}, opts)
+        exit({:shutdown, 1})
+    end
+  end
+
+  defp run_search(opts, positional) do
     AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
-      Mix.Task.run("app.start")
+      AshAgentTools.TaskOutput.ensure_compiled()
 
       # Resource modules load lazily; load the domains configured the way
       # ash projects declare them (`config :my_app, ash_domains: [...]`) so
@@ -68,9 +91,24 @@ defmodule Mix.Tasks.AshAgent.Search do
         [term] ->
           kinds = kinds_from_opts(opts)
 
-          results = AshAgentTools.semantic_search(term, kinds: kinds)
+          results =
+            AshAgentTools.semantic_search(
+              term,
+              kinds: kinds,
+              max_results: Keyword.get(opts, :max_results, 100)
+            )
 
-          %{query: term, kinds: kinds, count: length(results), results: results}
+          envelope =
+            %{query: term, kinds: kinds, count: length(results), results: results}
+            |> Map.merge(
+              if results == [] do
+                %{did_you_mean: AshAgentTools.Search.did_you_mean(term)}
+              else
+                %{}
+              end
+            )
+
+          envelope
           |> Jason.encode!(pretty: !!opts[:pretty])
           |> AshAgentTools.TaskOutput.write_json(opts)
 
@@ -78,6 +116,12 @@ defmodule Mix.Tasks.AshAgent.Search do
           Mix.raise("Usage: mix ash_agent.search TERM [--kind KIND] [--out FILE] [--pretty]")
       end
     end)
+  rescue
+    # over-limit refinement errors are answers too: structured JSON, not a
+    # crash
+    error in ArgumentError ->
+      AshAgentTools.TaskOutput.emit_json_error(%{error: Exception.message(error)}, opts)
+      exit({:shutdown, 1})
   end
 
   # `--kind` is parsed with `:keep`, so repeated flags come back as repeated

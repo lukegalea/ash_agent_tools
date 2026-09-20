@@ -28,7 +28,7 @@ defmodule AshAgentTools.Forbidden do
   @spec explain_forbidden(module(), atom() | String.t() | nil) :: map()
   def explain_forbidden(resource, action_name \\ nil) do
     Describe.ensure_resource!(resource)
-    action_name = normalize_action_name(action_name)
+    action_name = normalize_action_name(resource, action_name)
 
     authorizers = Ash.Resource.Info.authorizers(resource)
     policy_authorizer? = Ash.Policy.Authorizer in authorizers
@@ -120,7 +120,11 @@ defmodule AshAgentTools.Forbidden do
     ]
   end
 
-  defp normalize_action_name(nil), do: nil
-  defp normalize_action_name(name) when is_atom(name), do: name
-  defp normalize_action_name(name) when is_binary(name), do: String.to_existing_atom(name)
+  defp normalize_action_name(_resource, nil), do: nil
+  defp normalize_action_name(_resource, name) when is_atom(name), do: name
+  # Agent-supplied action names: same enriched unknown-action error as
+  # describe/validate (did_you_mean from the real action list) instead of a
+  # bare — and non-deterministic — String.to_existing_atom ArgumentError.
+  defp normalize_action_name(resource, name) when is_binary(name),
+    do: Describe.resolve_action!(resource, name).name
 end

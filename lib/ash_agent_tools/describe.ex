@@ -14,6 +14,7 @@ defmodule AshAgentTools.Describe do
 
   alias AshAgentTools.Registry
   alias AshAgentTools.Source
+  alias AshAgentTools.Suggest
   alias AshAgentTools.Types
 
   @doc """
@@ -49,14 +50,7 @@ defmodule AshAgentTools.Describe do
   @spec describe_action(module(), atom() | String.t()) :: map()
   def describe_action(resource, action_name) do
     ensure_resource!(resource)
-
-    action_name = to_action_name(action_name)
-    action = Ash.Resource.Info.action(resource, action_name)
-
-    action ||
-      raise ArgumentError,
-            "#{Registry.module_name(resource)} has no action named #{inspect(action_name)}." <>
-              " Available actions: #{inspect(Enum.map(Ash.Resource.Info.actions(resource), & &1.name))}"
+    action = resolve_action!(resource, action_name)
 
     %{
       resource: resource,
@@ -70,6 +64,63 @@ defmodule AshAgentTools.Describe do
       code_interfaces: code_interfaces(resource, action),
       source: Source.from_entity(action)
     }
+  end
+
+  @doc false
+  # Resolves an action name (atom or string) against `resource` and returns
+  # the action entity. Agent-supplied action names arrive as JSON strings;
+  # `String.to_existing_atom/1` on a name whose atom does not exist raises a
+  # bare ArgumentError (and is non-deterministic — it succeeds whenever the
+  # atom happens to be in the table), so both failure modes are funneled
+  # into one enriched error with did_you_mean candidates from the real
+  # action list.
+  def resolve_action!(resource, name) when is_atom(name) do
+    Ash.Resource.Info.action(resource, name) || unknown_action!(resource, Atom.to_string(name))
+  end
+
+  def resolve_action!(resource, name) when is_binary(name) do
+    atom =
+      try do
+        String.to_existing_atom(name)
+      rescue
+        ArgumentError -> :error
+      end
+
+    case atom do
+      :error -> unknown_action!(resource, name)
+      atom -> Ash.Resource.Info.action(resource, atom) || unknown_action!(resource, name)
+    end
+  end
+
+  @doc """
+  The action names of `resource` closest to a missed action name, closest
+  first (at most 3). Never raises; an unknown resource suggests nothing.
+  The same candidates back the enriched unknown-action errors.
+  """
+  @spec action_did_you_mean(module(), atom() | String.t()) :: [String.t()]
+  def action_did_you_mean(resource, name) do
+    if function_exported?(resource, :spark_is, 0) do
+      Suggest.closest(to_string(name), action_names(resource))
+    else
+      []
+    end
+  end
+
+  defp action_names(resource),
+    do: Enum.map(Ash.Resource.Info.actions(resource), &Atom.to_string(&1.name))
+
+  defp unknown_action!(resource, name) do
+    did_you_mean = action_did_you_mean(resource, name)
+
+    hint =
+      if did_you_mean == [] do
+        "Valid actions: #{inspect(Enum.map(Ash.Resource.Info.actions(resource), & &1.name))}"
+      else
+        "Did you mean: #{inspect(did_you_mean)}?"
+      end
+
+    raise ArgumentError,
+          "#{Registry.module_name(resource)} has no action named #{inspect(name)}. #{hint}"
   end
 
   # -- describe_resource ------------------------------------------------
@@ -258,9 +309,6 @@ defmodule AshAgentTools.Describe do
   defp constraints(constraints) do
     Map.new(constraints, fn {key, value} -> {key, Types.to_json_safe(value)} end)
   end
-
-  defp to_action_name(name) when is_atom(name), do: name
-  defp to_action_name(name) when is_binary(name), do: String.to_existing_atom(name)
 
   @doc false
   def ensure_resource!(resource) do

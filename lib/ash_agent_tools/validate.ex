@@ -48,12 +48,8 @@ defmodule AshAgentTools.Validate do
     started = System.monotonic_time(:millisecond)
     Describe.ensure_resource!(resource)
 
-    action_name = to_action_name(action_name)
-    action = Ash.Resource.Info.action(resource, action_name)
-
-    action ||
-      raise ArgumentError,
-            "#{Registry.module_name(resource)} has no action named #{inspect(action_name)}"
+    action = Describe.resolve_action!(resource, action_name)
+    action_name = action.name
 
     params = params || %{}
     contract = Describe.describe_action(resource, action_name).input
@@ -363,7 +359,4 @@ defmodule AshAgentTools.Validate do
 
   defp key_path({:unknown_key, key}), do: key
   defp key_path(key) when is_atom(key), do: Atom.to_string(key)
-
-  defp to_action_name(name) when is_atom(name), do: name
-  defp to_action_name(name) when is_binary(name), do: String.to_existing_atom(name)
 end

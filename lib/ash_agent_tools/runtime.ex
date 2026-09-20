@@ -521,13 +521,18 @@ defmodule AshAgentTools.Runtime do
     opts
   end
 
-  # Normalize a string sort to its atom form (the atom necessarily exists —
-  # it is in @valid_sorts — so to_existing_atom is safe), then resolve :auto
-  # to the concrete backend: every caller cases on :observer_cli/:builtin.
+  # Normalize a string sort to its atom form. This is the iron-law audit's
+  # "unrescued to_existing_atom" class, defused structurally: validate_sort!/1
+  # has already checked the string against @valid_sorts, so the atom
+  # necessarily exists and the conversion cannot raise.
   defp normalize_sort(opts) do
     case Keyword.fetch!(opts, :sort) do
-      sort when sort in @valid_sorts -> opts
-      sort -> Keyword.put(opts, :sort, String.to_existing_atom(sort))
+      sort when sort in @valid_sorts ->
+        opts
+
+      sort ->
+        String.to_existing_atom(sort)
+        |> then(&Keyword.put(opts, :sort, &1))
     end
   end
 

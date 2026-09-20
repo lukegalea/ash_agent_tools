@@ -19,10 +19,13 @@ defmodule Mix.Tasks.AshAgent.Context do
   reports `module: null`, `match: null`. Nothing is executed against your
   data.
 
-  **stdout is pure JSON, always.** Logger output from application start
-  (repo wiring, banners, debug logs) is suppressed while the task runs, so
-  the output pipes cleanly into a JSON parser; use `--verbose` if you want
-  the logs back.
+  **Boot contract: compile, don't start.** The task boots only
+  `app.config` + compile + the domains configured under
+  `config :my_app, ash_domains: [...]` — the application is *not started*
+  (no Oban queues, no projectors, no endpoints). See usage-rules.md.
+
+  **stdout is pure JSON, always.** Logger output is suppressed while the
+  task runs; use `--verbose` if you want the logs back.
 
   ## Usage
 
@@ -50,15 +53,17 @@ defmodule Mix.Tasks.AshAgent.Context do
 
   use Mix.Task
 
-  # app.start runs inside run/1 (not via @requirements) so the logger is
-  # silenced before the application boots.
+  # Compile-only boot: introspection needs compiled DSL state, not a
+  # running application (see the moduledoc and usage-rules.md).
+  @requirements ["app.config"]
+
   @impl Mix.Task
   def run(args) do
     {opts, positional, _invalid} =
       OptionParser.parse(args, strict: [pretty: :boolean, out: :string, verbose: :boolean])
 
     AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
-      Mix.Task.run("app.start")
+      AshAgentTools.TaskOutput.ensure_compiled()
 
       # Resource modules load lazily; load the domains configured the way
       # ash projects declare them so context covers the declared surface.

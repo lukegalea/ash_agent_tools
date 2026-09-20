@@ -13,10 +13,16 @@ defmodule Mix.Tasks.AshAgent.Describe do
   `AshAgentTools.describe_action/2` (or prints a discovery summary when given
   no arguments). Nothing is executed against your data.
 
-  **stdout is pure JSON, always.** Logger output from application start
-  (repo wiring, banners, debug logs) is suppressed while the task runs, so
-  the output pipes cleanly into a JSON parser; use `--verbose` if you want
-  the logs back.
+  **Boot contract: compile, don't start.** The task boots only
+  `app.config` + compile + the domains configured under
+  `config :my_app, ash_domains: [...]` — the application is *not started*,
+  so nothing runs (no Oban queues, no projectors, no endpoints). See the
+  caveats in usage-rules.md.
+
+  **stdout is pure JSON, always.** Logger output is suppressed while the
+  task runs, and compilation output is routed away from stdout, so the
+  output pipes cleanly into a JSON parser; use `--verbose` if you want the
+  logs back.
 
   ## Usage
 
@@ -51,8 +57,10 @@ defmodule Mix.Tasks.AshAgent.Describe do
 
   use Mix.Task
 
-  # app.start runs inside run/1 (not via @requirements) so the logger is
-  # silenced before the application boots.
+  # Compile-only boot: introspection needs compiled DSL state, not a
+  # running application (see the moduledoc and usage-rules.md).
+  @requirements ["app.config"]
+
   @impl Mix.Task
   def run(args) do
     {opts, positional, _invalid} =
@@ -61,7 +69,7 @@ defmodule Mix.Tasks.AshAgent.Describe do
       )
 
     AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
-      Mix.Task.run("app.start")
+      AshAgentTools.TaskOutput.ensure_compiled()
 
       # Resource modules load lazily; make the no-argument discovery summary
       # useful by loading the domains configured the way ash projects declare
@@ -73,14 +81,17 @@ defmodule Mix.Tasks.AshAgent.Describe do
           {[], nil} ->
             summary()
 
+          {[resource], nil} ->
+            run_describe(resource, nil, opts)
+
           {[resource], action} ->
-            AshAgentTools.describe_action(to_module!(resource), action_or_action_opt(action))
+            run_describe(resource, action, opts)
 
           {[resource, action], nil} ->
-            AshAgentTools.describe_action(to_module!(resource), action)
+            run_describe(resource, action, opts)
 
           {_, action} when is_binary(action) ->
-            AshAgentTools.describe_action(to_module!(hd(positional)), action)
+            run_describe(hd(positional), action, opts)
 
           _ ->
             Mix.raise("Usage: mix ash_agent.describe [RESOURCE] [--action ACTION]")
@@ -92,17 +103,53 @@ defmodule Mix.Tasks.AshAgent.Describe do
     end)
   end
 
+  # A resource with no action describes the resource itself (the documented
+  # `mix ash_agent.describe MyApp.Post` usage).
+  defp run_describe(resource_name, nil, opts) do
+    module = to_module!(resource_name)
+
+    try do
+      AshAgentTools.describe_resource(module)
+    rescue
+      error in ArgumentError -> emit_describe_error(error, module, nil, opts)
+    end
+  end
+
+  defp run_describe(resource_name, action, opts) do
+    module = to_module!(resource_name)
+
+    try do
+      AshAgentTools.describe_action(module, action)
+    rescue
+      # An agent-supplied action name that resolves to nothing must not
+      # break the pure-JSON contract: emit a structured error (with
+      # did_you_mean) on stdout and exit non-zero, instead of letting the
+      # ArgumentError crash Mix into stderr noise.
+      error in ArgumentError ->
+        emit_describe_error(error, module, action, opts)
+    end
+  end
+
+  defp emit_describe_error(error, module, action, opts) do
+    did_you_mean =
+      if is_binary(action),
+        do: AshAgentTools.Describe.action_did_you_mean(module, action),
+        else: []
+
+    AshAgentTools.TaskOutput.emit_json_error(
+      %{error: Exception.message(error), did_you_mean: did_you_mean},
+      opts
+    )
+
+    exit({:shutdown, 1})
+  end
+
   defp summary do
     %{
       domains: Enum.map(AshAgentTools.list_domains(), &AshAgentTools.Registry.module_name/1),
       resources: Enum.map(AshAgentTools.list_resources(), &AshAgentTools.Registry.module_name/1)
     }
   end
-
-  defp action_or_action_opt(nil),
-    do: raise(ArgumentError, "no action given (use --action ACTION)")
-
-  defp action_or_action_opt(action), do: action
 
   defp to_module!(name) when is_binary(name) do
     module = Module.concat([name])
