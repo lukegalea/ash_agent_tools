@@ -812,6 +812,12 @@ defmodule AshAgentToolsTest do
             "AshAgentTools.semantic_search(",
             "AshAgentTools.diff_manifest(",
             "AshAgentTools.context(",
+            "AshAgentTools.explain_trace(",
+            "AshAgentTools.Runtime.snapshot()",
+            "AshAgentTools.Runtime.top(20)",
+            "AshAgentTools.Runtime.tree(\"MyApp\")",
+            "AshAgentTools.Kaizen.attach()",
+            "AshAgentTools.Kaizen.digest()",
             "AshAgentTools.Registry"
           ] do
         assert String.contains?(docs, snippet)

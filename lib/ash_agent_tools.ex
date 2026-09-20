@@ -35,6 +35,9 @@ defmodule AshAgentTools do
     * `diff_manifest/2` — structural diff of two semantic-manifest JSON files
    * `context/3` — the Ash resource/symbol at a file position, plus what
      references it (collapses the grep → read → re-grep loop into one call)
+   * `explain_trace/2` — the budget-bounded reduction of an OTel span list
+     (errors innermost first, queries with N+1 detection, policies,
+     notifications, async, symbols)
    * `eval_docs/0` — the exact snippets for using this API in-VM, without a
      mix boot, when your session is already attached to a running node
 
@@ -52,6 +55,8 @@ defmodule AshAgentTools do
   $ mix ash_agent.search tag
   $ mix ash_agent.diff old.json new.json
   $ mix ash_agent.context lib/my_app/accounts/post.ex:42
+  $ mix ash_agent.runtime snapshot   # also: top 20 | tree MyApp
+  $ mix ash_agent.gaps               # the kaizen tool-gap digest
   ```
 
   See `usage-rules.md` at the package root for agent-oriented guidance.
@@ -338,6 +343,18 @@ defmodule AshAgentTools do
         AshAgentTools.diff_manifest("old.json", "new.json")   # semantic-manifest diff by stable symbol id
         AshAgentTools.context("lib/my_app/accounts/post.ex", 42)
                                                               # {:ok, %{module, match, nearest, references, manifests}} for a file position
+        AshAgentTools.explain_trace(spans)                    # trace reduction: errors, queries (N+1 flagged), policies, budget-bounded
+
+    Runtime state (the other half of debugging — pair with a trace via
+    trace_id): `AshAgentTools.Runtime.snapshot()`, `AshAgentTools.Runtime.top(20)`,
+    `AshAgentTools.Runtime.tree("MyApp")` — read-only BEAM views, JSON-safe.
+
+    Every tool miss (unknown input, search miss, context miss) emits a
+    `[:ash_agent, :tool_gap]` telemetry event. Attach the dev sink once per
+    session and read the aggregate:
+
+        AshAgentTools.Kaizen.attach()                         # ETS sink + handler, idempotent
+        AshAgentTools.Kaizen.digest()                         # counts + did_you_mean candidates per gap
 
     Helper module: `AshAgentTools.Registry` (`list_domains/0`,
     `list_resources/0`, `domains_for_resource/1`, `module_name/1`).
