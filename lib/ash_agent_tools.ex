@@ -33,10 +33,10 @@ defmodule AshAgentTools do
     * `explain_forbidden/2` — list the policies that can deny an action
     * `semantic_search/2` — find symbols by name substring across resources
     * `diff_manifest/2` — structural diff of two semantic-manifest JSON files
-    * `context/3` — the Ash resource/symbol at a file position, plus what
-      references it (collapses the grep → read → re-grep loop into one call)
-    * `eval_docs/0` — the exact snippets for using this API in-VM, without a
-      mix boot, when your session is already attached to a running node
+   * `context/3` — the Ash resource/symbol at a file position, plus what
+     references it (collapses the grep → read → re-grep loop into one call)
+   * `eval_docs/0` — the exact snippets for using this API in-VM, without a
+     mix boot, when your session is already attached to a running node
 
   All functions raise `ArgumentError` when pointed at something that is not a
   loaded Ash resource (or an action that does not exist); discovery functions
@@ -263,6 +263,33 @@ defmodule AshAgentTools do
   """
   @spec context(String.t(), pos_integer(), keyword()) :: {:ok, map()}
   def context(file, line, opts \\ []), do: AshAgentTools.Context.context(file, line, opts)
+
+  @doc """
+  Reduces an OpenTelemetry span list into a budget-bounded report an agent
+  can actually read.
+
+  This is the pure, dependency-free half of trace tooling: give it spans
+  from anywhere (an in-BEAM ring buffer, an OTLP export, a fixture) and it
+  answers the diagnostic questions — where did it fail (errors innermost
+  first), which queries ran (with N+1 detection: identical sources under one
+  parent collapse into one flagged entry), which policies applied, what
+  notifications and async branches fired, which `ash.symbol_id`s are in the
+  trace — all within a character budget (default ~8000) with an honest
+  `truncated?` flag and an optional `backend_url` deep-link echoed back.
+
+  See `AshAgentTools.Trace.explain/2` for the full contract and accepted
+  span shapes.
+
+  ## Examples
+
+      iex> spans = [%{name: "ash.read", status: :ok, attributes: %{}, start: 0, end: 90, trace_id: "t", span_id: "a", parent_id: nil}]
+      iex> report = AshAgentTools.explain_trace(spans)
+      iex> {report.root.name, report.truncated?}
+      {"ash.read", false}
+
+  """
+  @spec explain_trace([map()], keyword()) :: map()
+  def explain_trace(spans, opts \\ []), do: AshAgentTools.Trace.explain(spans, opts)
 
   @doc """
   Returns the snippet an agent should evaluate to use this API in-VM.
