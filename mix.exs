@@ -64,6 +64,14 @@ defmodule AshAgentTools.MixProject do
       # evaluates policies.
       {:simple_sat, "~> 0.1", only: [:dev, :test]},
 
+      # Optional BEAM runtime introspection backend for
+      # `AshAgentTools.Runtime`. When the host application ships
+      # observer_cli 2.0 (+ recon, its pinned dependency), the runtime tools
+      # delegate to its heap-capped, JSON-safe snapshot worker; otherwise
+      # they fall back to built-in Process/:ets/:supervisor walks. Optional
+      # so hosts without it pay nothing.
+      {:observer_cli, "~> 2.0", only: :dev, optional: true},
+      {:recon, "2.5.6", only: :dev, optional: true},
 
       # Dev hygiene: static analysis and type checking.
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
