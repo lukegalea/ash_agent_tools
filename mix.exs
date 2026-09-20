@@ -57,6 +57,13 @@ defmodule AshAgentTools.MixProject do
       # transitively through ash).
       {:telemetry, "~> 1.2"},
 
+      # Precise AST ranges for the semantic edit tools: editing a DSL block
+      # means splicing exact source spans, and hand-rolled range math is
+      # exactly the class of bug (Serena's "range-fidelity bugs") this
+      # avoids. Sourceror is small, pure Elixir, and already in most Ash
+      # projects' dependency graphs via igniter.
+      {:sourceror, "~> 1.2"},
+
       # Pure-Elixir SAT solver, needed to verify the policies of the
       # test-only resource that exercises `explain_forbidden/2`.
       # Production users of Ash.Policy.Authorizer choose their own solver

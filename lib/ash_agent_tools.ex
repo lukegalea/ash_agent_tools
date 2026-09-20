@@ -38,6 +38,10 @@ defmodule AshAgentTools do
    * `explain_trace/2` — the budget-bounded reduction of an OTel span list
      (errors innermost first, queries with N+1 detection, policies,
      notifications, async, symbols)
+   * `resolve/1` — name-path addressing over DSL entities
+     (`MyApp.Post/actions/by_tag`, `.../policies/policy[0]`), with spans,
+     provenance, and shape digests — the addressing layer for
+     `AshAgentTools.Edit`'s semantic edit operations
    * `eval_docs/0` — the exact snippets for using this API in-VM, without a
      mix boot, when your session is already attached to a running node
 
@@ -87,8 +91,9 @@ defmodule AshAgentTools do
 
   ## Examples
 
-      iex> AshAgentTools.list_resources() |> Enum.map(&AshAgentTools.Registry.module_name/1)
-      ["AshAgentTools.Test.Author", "AshAgentTools.Test.Comment", "AshAgentTools.Test.ContextProbe", "AshAgentTools.Test.Guarded", "AshAgentTools.Test.Post"]
+      iex> resources = AshAgentTools.list_resources() |> Enum.map(&AshAgentTools.Registry.module_name/1)
+      iex> Enum.all?(["AshAgentTools.Test.Author", "AshAgentTools.Test.Comment", "AshAgentTools.Test.ContextProbe", "AshAgentTools.Test.Guarded", "AshAgentTools.Test.Post"], &(&1 in resources))
+      true
 
   """
   @spec list_resources() :: [module()]
@@ -297,6 +302,36 @@ defmodule AshAgentTools do
   def explain_trace(spans, opts \\ []), do: AshAgentTools.Trace.explain(spans, opts)
 
   @doc """
+  Resolves a DSL-entity name path to a symbol report.
+
+  Name paths pin DSL entities the way `Class/method` pins a Serena symbol:
+  `"MyApp.Accounts.User/actions/read"`, `".../policies/policy[0]"`, with
+  dot-boundary suffix matching for the module (`"User/actions/read"`) and a
+  leading `/` requiring the full module name. Returns `{:ok, report}` with
+  the canonical `name_path`, the owning `module`, the `symbol` (kind, type,
+  span, `provenance: :source | :synthetic`), and — when the symbol has a
+  source file — its `file_shape` digest for the edit tools' read-before-edit
+  handshake.
+
+  Raises `ArgumentError` for malformed paths, unknown modules or segments
+  (with did_you_mean candidates), and ambiguous suffix matches (with the
+  match list). See `AshAgentTools.NamePath` for the full grammar.
+
+  ## Examples
+
+      iex> {:ok, report} = AshAgentTools.resolve("Post/actions/by_tag")
+      iex> {report.name_path, report.symbol.kind, report.symbol.provenance}
+      {"AshAgentTools.Test.Post/actions/by_tag", :action, :source}
+
+      iex> {:ok, report} = AshAgentTools.resolve("AshAgentTools.Test.Post")
+      iex> report.symbol.kind
+      :resource
+
+  """
+  @spec resolve(String.t(), keyword()) :: {:ok, map()}
+  def resolve(name_path, opts \\ []), do: AshAgentTools.NamePath.resolve(name_path, opts)
+
+  @doc """
   Returns the snippet an agent should evaluate to use this API in-VM.
 
   Per-query `mix` boots cost seconds to minutes (cold compile, dependency
@@ -344,6 +379,8 @@ defmodule AshAgentTools do
         AshAgentTools.context("lib/my_app/accounts/post.ex", 42)
                                                               # {:ok, %{module, match, nearest, references, manifests}} for a file position
         AshAgentTools.explain_trace(spans)                    # trace reduction: errors, queries (N+1 flagged), policies, budget-bounded
+        AshAgentTools.resolve("MyApp.Post/actions/by_tag")    # name-path resolution: symbol, span, provenance, shape digest
+                                                              # (edits: AshAgentTools.Edit.replace_entity_block/3 et al. — dry-run by default)
 
     Runtime state (the other half of debugging — pair with a trace via
     trace_id): `AshAgentTools.Runtime.snapshot()`, `AshAgentTools.Runtime.top(20)`,

@@ -22,6 +22,8 @@ defmodule AshAgentTools.Search do
 
   @valid_kinds [:attribute, :action, :calculation, :relationship]
 
+  @default_max_results 100
+
   @kind_lookup Map.new(@valid_kinds, fn kind -> {Atom.to_string(kind), kind} end)
 
   @doc """
@@ -49,6 +51,10 @@ defmodule AshAgentTools.Search do
 
     * `:kinds` — restrict the search to one kind or a list of kinds
       (atoms or strings). Unknown kinds raise `ArgumentError`.
+    * `:max_results` — refinement limit (positive integer, default
+      #{@default_max_results}): when more symbols match, the search raises
+      with per-resource counts instead of returning a wall of hits
+      (Serena's over-limit refinement).
 
   Raises `ArgumentError` for a non-binary or blank search term, or an
   unknown kind in the filter. Like the other discovery functions, it never
@@ -83,6 +89,7 @@ defmodule AshAgentTools.Search do
     end
 
     kinds = validate_kinds!(Keyword.get(opts, :kinds))
+    max_results = max_results!(opts)
     needle = String.downcase(term)
 
     results =
@@ -90,6 +97,21 @@ defmodule AshAgentTools.Search do
         result
       end
       |> Enum.sort_by(&{Registry.module_name(&1.resource), Atom.to_string(&1.kind), &1.name})
+
+    results =
+      if length(results) > max_results do
+        # Serena-style over-limit refinement: refuse with the per-resource
+        # counts instead of returning a wall of hits.
+        counts =
+          Enum.frequencies_by(results, &Registry.module_name(&1.resource))
+
+        raise ArgumentError,
+              "too many results for #{inspect(term)}: #{length(results)} symbols across" <>
+                " #{map_size(counts)} resource(s), exceeding :max_results (#{max_results})." <>
+                " Refine the term or raise :max_results. Counts: #{inspect(counts)}"
+      else
+        results
+      end
 
     if results == [] do
       # The tool could not answer: report the miss (with the closest real
@@ -106,6 +128,16 @@ defmodule AshAgentTools.Search do
 
   def semantic_search(term, _opts) do
     raise ArgumentError, "search term must be a string, got: #{inspect(term)}"
+  end
+
+  defp max_results!(opts) do
+    max = Keyword.get(opts, :max_results, @default_max_results)
+
+    if is_integer(max) and max > 0 do
+      max
+    else
+      raise ArgumentError, ":max_results must be a positive integer, got: #{inspect(max)}"
+    end
   end
 
   @doc """

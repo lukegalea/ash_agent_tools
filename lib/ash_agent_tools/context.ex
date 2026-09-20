@@ -25,9 +25,11 @@ defmodule AshAgentTools.Context do
   alias AshAgentTools.Kaizen
   alias AshAgentTools.Registry
   alias AshAgentTools.Source
-  alias AshAgentTools.Types
+  alias AshAgentTools.Symbols
 
   @default_nearest 5
+
+  @default_max_list 25
 
   # Where per-module semantic manifests are looked up when the caller does
   # not point `:manifests` at something explicit. Matches the location the
@@ -101,6 +103,7 @@ defmodule AshAgentTools.Context do
     started = System.monotonic_time(:millisecond)
     file = String.trim(file)
     nearest_count = nearest_count!(opts)
+    max_list = max_list!(opts)
 
     if file == "" do
       raise ArgumentError, "file must be a non-blank string"
@@ -111,7 +114,7 @@ defmodule AshAgentTools.Context do
     end
 
     {module_info, symbols} = locate_module(indexed_modules(), file, line)
-    spans = with_spans(symbols, line_count(file))
+    spans = Symbols.with_spans(symbols, Symbols.line_count(file))
     match = containing_symbol(spans, line)
 
     # A file that no loaded Ash module declares is an honest miss: report it
@@ -132,16 +135,17 @@ defmodule AshAgentTools.Context do
     end
 
     {:ok,
-     %{
+     assemble_report(%{
        file: file,
        line: line,
-       module: module_info,
-       match: match && project_match(match),
-       nearest: project_nearest(nearest_symbols(spans, line, nearest_count), line),
-       references: references(module_info, match),
-       manifests: manifest_report(opts, module_info),
+       module_info: module_info,
+       match: match,
+       spans: spans,
+       nearest_count: nearest_count,
+       max_list: max_list,
+       opts: opts,
        did_you_mean: suggestions
-     }}
+     })}
   end
 
   def context(file, _line, _opts) when not is_binary(file) do
@@ -162,54 +166,18 @@ defmodule AshAgentTools.Context do
 
     for module <- Enum.uniq(Registry.list_domains() ++ Registry.list_resources()) do
       kind = if MapSet.member?(domains, module), do: :domain, else: :resource
-      %{module: module, kind: kind, symbols: module_symbols(module, kind)}
+      %{module: module, kind: kind, symbols: positioned_symbols(module, kind)}
     end
   end
 
   # The DSL symbols of one module that carry a usable (file + line) Spark
-  # annotation, flattened from the four resource symbol kinds and, for
-  # domains, resource references and code-interface definitions.
-  defp module_symbols(module, :resource), do: resource_symbols(module)
-  defp module_symbols(module, :domain), do: domain_symbols(module)
-
-  defp resource_symbols(resource) do
-    Enum.flat_map(Ash.Resource.Info.attributes(resource), fn attribute ->
-      symbol(:attribute, attribute.name, Types.normalize(attribute.type), attribute)
-    end) ++
-      Enum.flat_map(Ash.Resource.Info.actions(resource), fn action ->
-        symbol(:action, action.name, action.type, action)
-      end) ++
-      Enum.flat_map(Ash.Resource.Info.calculations(resource), fn calculation ->
-        symbol(:calculation, calculation.name, Types.normalize(calculation.type), calculation)
-      end) ++
-      Enum.flat_map(Ash.Resource.Info.relationships(resource), fn relationship ->
-        symbol(:relationship, relationship.name, relationship.type, relationship)
-      end)
-  end
-
-  defp domain_symbols(domain) do
-    references = Ash.Domain.Info.resource_references(domain)
-
-    Enum.flat_map(references, fn reference ->
-      symbol(:resource_reference, reference.resource, nil, reference)
-    end) ++
-      Enum.flat_map(references, fn reference ->
-        Enum.flat_map(Map.get(reference, :define, []), fn define ->
-          symbol(:code_interface, define.name, Map.get(define, :action), define)
-        end)
-      end)
-  end
-
-  # Keeps only symbols whose Spark annotation pins both a file and a line;
-  # without both, a symbol cannot be positioned and is silently skipped.
-  defp symbol(kind, name, type, entity) do
-    case Source.from_entity(entity) do
-      %{file: file, line: line} = source when is_binary(file) and is_integer(line) ->
-        [%{kind: kind, name: name, type: type, source: source}]
-
-      _ ->
-        []
-    end
+  # annotation — the shared `AshAgentTools.Symbols` index, filtered to
+  # positioned symbols: without both a file and a line, a symbol cannot be
+  # file-matched and is silently skipped here.
+  defp positioned_symbols(module, kind) do
+    module
+    |> Symbols.module_symbols(kind)
+    |> Enum.filter(& &1.source)
   end
 
   # Pick the module that declares at/near the position: among the modules
@@ -305,32 +273,6 @@ defmodule AshAgentTools.Context do
 
   # -- spans, match, nearest ------------------------------------------------
 
-  defp line_count(file) do
-    case File.read(file) do
-      {:ok, contents} -> contents |> String.split("\n") |> length()
-      _ -> nil
-    end
-  end
-
-  # A symbol's span runs from its annotated start line to the line before
-  # the next symbol starts (best-effort: annotations carry starts, not
-  # ends). The last symbol's span extends to the end of the file.
-  defp with_spans(symbols, line_count) do
-    symbols
-    |> Enum.with_index()
-    |> Enum.map(fn {symbol, index} ->
-      start_line = symbol.source.line
-
-      end_line =
-        case Enum.at(symbols, index + 1) do
-          nil -> line_count || start_line
-          next -> max(next.source.line - 1, start_line)
-        end
-
-      Map.put(symbol, :span, %{start_line: start_line, end_line: end_line})
-    end)
-  end
-
   defp containing_symbol(spans, line) do
     spans
     |> Enum.filter(&(&1.span.start_line <= line))
@@ -383,6 +325,19 @@ defmodule AshAgentTools.Context do
   end
 
   # -- references -------------------------------------------------------------
+
+  @doc false
+  # The reference projection for one symbol, without a position: what the
+  # safe-delete tool checks before it will cut. Attributes report the
+  # actions that accept them and the relationships wired through them;
+  # actions report the code interfaces that call them (domain scan).
+  def references_for(resource, kind, name) do
+    references(%{module: resource}, %{kind: kind, name: name})
+  rescue
+    _ -> []
+  end
+
+  # -- references (position-aware) --------------------------------------------
 
   # What references the matched symbol. Attributes report the actions that
   # accept them (accept list or same-named argument) and the relationships
@@ -509,6 +464,65 @@ defmodule AshAgentTools.Context do
 
   # -- option validation ---------------------------------------------------------
 
+  # Serena-style truncation ladder: any list that can blow up is capped at
+  # :max_list, and a `:truncated?` marker (with shown/total counts) appears
+  # only when a cap actually bit. Structure first, counts on demand.
+  defp ladder(map, max_list) when is_map(map) do
+    {entries, truncated?} =
+      Enum.reduce(map, {%{}, false}, fn
+        {key, value}, {acc, any_truncated?} when is_list(value) ->
+          {capped, overflow} = Enum.split(value, max_list)
+
+          acc =
+            if overflow != [] do
+              Map.put(acc, :"#{key}_truncated?", %{
+                shown: length(capped),
+                total: value |> length()
+              })
+            else
+              acc
+            end
+
+          {Map.put(acc, key, capped), any_truncated? or overflow != []}
+
+        {key, value}, {acc, any_truncated?} ->
+          {Map.put(acc, key, value), any_truncated?}
+      end)
+
+    {:ok, if(truncated?, do: Map.put(entries, :truncated?, true), else: entries)}
+  end
+
+  defp assemble_report(%{
+         file: file,
+         line: line,
+         module_info: module_info,
+         match: match,
+         spans: spans,
+         nearest_count: nearest_count,
+         max_list: max_list,
+         opts: opts,
+         did_you_mean: did_you_mean
+       }) do
+    {:ok, references} = ladder(references(module_info, match), max_list)
+
+    {:ok, manifests} =
+      case manifest_report(opts, module_info) do
+        nil -> {:ok, nil}
+        manifests -> ladder(manifests, max_list)
+      end
+
+    %{
+      file: file,
+      line: line,
+      module: module_info,
+      match: match && project_match(match),
+      nearest: project_nearest(nearest_symbols(spans, line, nearest_count), line),
+      references: references,
+      manifests: manifests,
+      did_you_mean: did_you_mean
+    }
+  end
+
   defp nearest_count!(opts) do
     count = Keyword.get(opts, :nearest, @default_nearest)
 
@@ -516,6 +530,16 @@ defmodule AshAgentTools.Context do
       count
     else
       raise ArgumentError, ":nearest must be a non-negative integer, got: #{inspect(count)}"
+    end
+  end
+
+  defp max_list!(opts) do
+    max = Keyword.get(opts, :max_list, @default_max_list)
+
+    if is_integer(max) and max > 0 do
+      max
+    else
+      raise ArgumentError, ":max_list must be a positive integer, got: #{inspect(max)}"
     end
   end
 end

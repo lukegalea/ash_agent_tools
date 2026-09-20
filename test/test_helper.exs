@@ -6,6 +6,7 @@
 # the test support modules are loaded before any doctest or test runs.
 [
   AshAgentTools.Test.Domain,
+  AshAgentTools.Test.InterfaceDomain,
   AshAgentTools.Test.Post,
   AshAgentTools.Test.Author,
   AshAgentTools.Test.Comment,
