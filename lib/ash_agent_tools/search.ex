@@ -14,8 +14,10 @@ defmodule AshAgentTools.Search do
   normalized type, and its Spark source location.
   """
 
+  alias AshAgentTools.Kaizen
   alias AshAgentTools.Registry
   alias AshAgentTools.Source
+  alias AshAgentTools.Suggest
   alias AshAgentTools.Types
 
   @valid_kinds [:attribute, :action, :calculation, :relationship]
@@ -50,7 +52,8 @@ defmodule AshAgentTools.Search do
 
   Raises `ArgumentError` for a non-binary or blank search term, or an
   unknown kind in the filter. Like the other discovery functions, it never
-  raises for *what it finds* — no match is an empty list.
+  raises for *what it finds* — no match is an empty list (and the miss is
+  reported to the kaizen loop, see `did_you_mean/1`).
 
   ## Examples
 
@@ -72,6 +75,7 @@ defmodule AshAgentTools.Search do
   def semantic_search(term, opts \\ [])
 
   def semantic_search(term, opts) when is_binary(term) do
+    started = System.monotonic_time(:millisecond)
     term = String.trim(term)
 
     if term == "" do
@@ -81,15 +85,66 @@ defmodule AshAgentTools.Search do
     kinds = validate_kinds!(Keyword.get(opts, :kinds))
     needle = String.downcase(term)
 
-    for result <- collect(needle), kind_allowed?(result, kinds) do
-      result
+    results =
+      for result <- collect(needle), kind_allowed?(result, kinds) do
+        result
+      end
+      |> Enum.sort_by(&{Registry.module_name(&1.resource), Atom.to_string(&1.kind), &1.name})
+
+    if results == [] do
+      # The tool could not answer: report the miss (with the closest real
+      # symbol names) to the kaizen loop, then still return the honest [].
+      duration_ms = System.monotonic_time(:millisecond) - started
+
+      Kaizen.emit(:search, :search_miss, term, %{term: term, did_you_mean: did_you_mean(term)},
+        duration_ms: duration_ms
+      )
     end
-    |> Enum.sort_by(&{Registry.module_name(&1.resource), Atom.to_string(&1.kind), &1.name})
+
+    results
   end
 
   def semantic_search(term, _opts) do
     raise ArgumentError, "search term must be a string, got: #{inspect(term)}"
   end
+
+  @doc """
+  The closest known symbol names to a missed search term, closest first
+  (at most 5, case-insensitive Levenshtein distance at most 3). Never
+  raises: a blank or non-binary term, or a world with no symbols, simply
+  suggests nothing. The same suggestions ride the kaizen
+  `[:ash_agent, :tool_gap]` event for every search miss.
+
+  ## Examples
+
+      iex> AshAgentTools.Search.did_you_mean("tgas")
+      ["tags", "read"]
+
+      iex> AshAgentTools.Search.did_you_mean("")
+      []
+
+  """
+  @spec did_you_mean(term()) :: [String.t()]
+  def did_you_mean(term)
+
+  def did_you_mean(term) when is_binary(term) do
+    case String.trim(term) do
+      "" ->
+        []
+
+      trimmed ->
+        candidates =
+          for resource <- Registry.list_resources(),
+              entry <- symbols(resource),
+              uniq: true do
+            Atom.to_string(entry.name)
+          end
+
+        Suggest.closest(trimmed, candidates, 5)
+    end
+  end
+
+  def did_you_mean(_term), do: []
 
   defp validate_kinds!(nil), do: nil
 

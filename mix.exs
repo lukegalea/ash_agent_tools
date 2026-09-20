@@ -53,12 +53,17 @@ defmodule AshAgentTools.MixProject do
       {:ash, "~> 3.0"},
       {:jason, "~> 1.4"},
 
+      # Kaizen tool-gap events (:telemetry is called directly, not just
+      # transitively through ash).
+      {:telemetry, "~> 1.2"},
+
       # Pure-Elixir SAT solver, needed to verify the policies of the
       # test-only resource that exercises `explain_forbidden/2`.
       # Production users of Ash.Policy.Authorizer choose their own solver
       # (picosat_elixir is the usual pick) — this package itself never
       # evaluates policies.
       {:simple_sat, "~> 0.1", only: [:dev, :test]},
+
 
       # Dev hygiene: static analysis and type checking.
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

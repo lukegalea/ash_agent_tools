@@ -22,6 +22,7 @@ defmodule AshAgentTools.Context do
   `ArgumentError`.
   """
 
+  alias AshAgentTools.Kaizen
   alias AshAgentTools.Registry
   alias AshAgentTools.Source
   alias AshAgentTools.Types
@@ -65,6 +66,11 @@ defmodule AshAgentTools.Context do
       **/*.json` by default, or `opts[:manifests]`), the matched module's
       manifest symbols and the relations (RFC §4.5 edges) that touch its
       symbol ids; `nil` when none are found or readable
+    * `did_you_mean` — on a miss (no loaded Ash module declares this file),
+      up to 3 declared files sharing the most path components with the
+      request (a shared directory or filename), so a near-miss path
+      self-corrects; `nil` otherwise. The same miss is reported to the
+      kaizen loop (`AshAgentTools.Kaizen`).
 
   ## Options
 
@@ -92,6 +98,7 @@ defmodule AshAgentTools.Context do
   def context(file, line, opts \\ [])
 
   def context(file, line, opts) when is_binary(file) and is_integer(line) and is_list(opts) do
+    started = System.monotonic_time(:millisecond)
     file = String.trim(file)
     nearest_count = nearest_count!(opts)
 
@@ -107,6 +114,23 @@ defmodule AshAgentTools.Context do
     spans = with_spans(symbols, line_count(file))
     match = containing_symbol(spans, line)
 
+    # A file that no loaded Ash module declares is an honest miss: report it
+    # to the kaizen loop (with the closest declared files as suggestions) and
+    # fold the same suggestions into the report.
+    suggestions = if module_info, do: nil, else: file_suggestions(file)
+
+    unless module_info do
+      duration_ms = System.monotonic_time(:millisecond) - started
+
+      Kaizen.emit(
+        :context,
+        :context_miss,
+        "#{file}:#{line}",
+        %{file: file, did_you_mean: suggestions},
+        duration_ms: duration_ms
+      )
+    end
+
     {:ok,
      %{
        file: file,
@@ -115,7 +139,8 @@ defmodule AshAgentTools.Context do
        match: match && project_match(match),
        nearest: project_nearest(nearest_symbols(spans, line, nearest_count), line),
        references: references(module_info, match),
-       manifests: manifest_report(opts, module_info)
+       manifests: manifest_report(opts, module_info),
+       did_you_mean: suggestions
      }}
   end
 
@@ -227,6 +252,41 @@ defmodule AshAgentTools.Context do
     do: Ash.Resource.Info.domain(resource)
 
   defp module_domain(%{kind: :domain}), do: nil
+
+  # did_you_mean for a context miss: the compile-time files of loaded Ash
+  # modules sharing the most path components with the request (at least one
+  # — a shared directory or filename), so a near-miss path self-corrects.
+  # Cheap because the candidate set is "the modules already loaded".
+  defp file_suggestions(file) do
+    parts = MapSet.new(path_parts(file))
+
+    candidates =
+      (Registry.list_domains() ++ Registry.list_resources())
+      |> Enum.uniq()
+      |> Enum.flat_map(fn module ->
+        case Source.from_module(module) do
+          %{file: candidate} when is_binary(candidate) -> [candidate]
+          _ -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    candidates
+    |> Enum.map(fn candidate ->
+      shared =
+        candidate
+        |> path_parts()
+        |> MapSet.new()
+        |> MapSet.intersection(parts)
+        |> MapSet.size()
+
+      {shared, candidate}
+    end)
+    |> Enum.filter(fn {shared, _candidate} -> shared >= 1 end)
+    |> Enum.sort_by(fn {shared, candidate} -> {-shared, candidate} end)
+    |> Enum.take(3)
+    |> Enum.map(&elem(&1, 1))
+  end
 
   # Path-component-suffix match: the requested path must equal the tail of
   # the annotated file, split on path separators in both directions.

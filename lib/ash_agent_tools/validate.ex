@@ -15,7 +15,10 @@ defmodule AshAgentTools.Validate do
   """
 
   alias AshAgentTools.Describe
+  alias AshAgentTools.Kaizen
+  alias AshAgentTools.Registry
   alias AshAgentTools.Source
+  alias AshAgentTools.Suggest
   alias AshAgentTools.Types
 
   @doc """
@@ -32,9 +35,17 @@ defmodule AshAgentTools.Validate do
       `AshAgentTools.describe_action/2`
 
   Always returns the report; check `valid?`.
+
+  Unknown-input errors carry a `did_you_mean` list: the closest names from
+  the action's real input contract, so the agent can self-correct in one
+  round-trip. Every unknown input is also reported to the kaizen loop
+  (`AshAgentTools.Kaizen` — a `[:ash_agent, :tool_gap]` telemetry event with
+  the unknown keys and their candidates) so recurring input-contract
+  friction surfaces without anyone filing a bug by hand.
   """
   @spec validate_input(module(), atom() | String.t(), map()) :: map()
   def validate_input(resource, action_name, params) do
+    started = System.monotonic_time(:millisecond)
     Describe.ensure_resource!(resource)
 
     action_name = to_action_name(action_name)
@@ -42,18 +53,19 @@ defmodule AshAgentTools.Validate do
 
     action ||
       raise ArgumentError,
-            "#{AshAgentTools.Registry.module_name(resource)} has no action named #{inspect(action_name)}"
+            "#{Registry.module_name(resource)} has no action named #{inspect(action_name)}"
 
     params = params || %{}
     contract = Describe.describe_action(resource, action_name).input
+    valid_names = valid_input_names(resource, action)
 
-    {normalized, cast_errors} = cast_params(resource, action, params)
+    {normalized, cast_errors, unknowns} = cast_params(resource, action, params, valid_names)
     missing_errors = missing_errors(contract, params)
     build_errors = build_errors(resource, action, params, normalized)
 
     errors = dedupe_errors(cast_errors, missing_errors, build_errors)
 
-    %{
+    report = %{
       resource: resource,
       action: action_name,
       action_type: action.type,
@@ -62,6 +74,45 @@ defmodule AshAgentTools.Validate do
       normalized_inputs: normalized,
       expected: contract
     }
+
+    emit_gap!(resource, action, report, unknowns, valid_names, started)
+    report
+  end
+
+  # The kaizen event fires when the tool could not fully answer the
+  # question — here: inputs the agent invented that the contract does not
+  # have. Best-effort by construction (Kaizen.emit never raises).
+  defp emit_gap!(_resource, _action, report, [], _valid_names, _started), do: report
+
+  defp emit_gap!(resource, action, _report, unknowns, valid_names, started) do
+    duration_ms = System.monotonic_time(:millisecond) - started
+
+    Kaizen.emit(
+      :validate,
+      :unknown_input,
+      "#{Registry.module_name(resource)}.#{action.name}",
+      %{
+        unknown: unknowns,
+        candidates: Map.new(unknowns, &{&1, Suggest.closest(&1, valid_names)})
+      },
+      duration_ms: duration_ms
+    )
+
+    :ok
+  end
+
+  # Every name a valid input could take, as strings — the candidate set for
+  # did_you_mean suggestions (arguments and accepted attributes, mirroring
+  # how Ash resolves inputs).
+  defp valid_input_names(resource, action) do
+    argument_names = Enum.map(action.arguments, &Atom.to_string(&1.name))
+
+    attribute_names =
+      resource
+      |> accepted_attributes(action)
+      |> Enum.map(&Atom.to_string(&1.name))
+
+    Enum.uniq(argument_names ++ attribute_names)
   end
 
   # Cast-stage and missing-input errors are authoritative; build-stage errors
@@ -116,8 +167,12 @@ defmodule AshAgentTools.Validate do
   # argument or accepted-attribute definition. Pure: nothing is persisted.
   # Report paths and normalized-input keys are always strings so the report
   # round-trips through JSON exactly as the agent provided it.
-  defp cast_params(resource, action, params) do
-    Enum.reduce(params, {%{}, []}, fn {raw_key, value}, {normalized, errors} ->
+  #
+  # Returns {normalized, errors, unknowns}: the unknowns list (the string
+  # keys the contract does not have) feeds the kaizen event, and each
+  # unknown-input entry carries its closest real names as `did_you_mean`.
+  defp cast_params(resource, action, params, valid_names) do
+    Enum.reduce(params, {%{}, [], []}, fn {raw_key, value}, {normalized, errors, unknowns} ->
       key = input_key(raw_key)
       path = key_path(key)
 
@@ -128,25 +183,27 @@ defmodule AshAgentTools.Validate do
              %{
                path: path,
                message: "unknown input #{inspect(path)} for action #{inspect(action.name)}",
-               source: nil
+               source: nil,
+               did_you_mean: Suggest.closest(path, valid_names)
              }
              | errors
-           ]}
+           ], [path | unknowns]}
 
         target ->
           case Ash.Type.cast_input(target.type, value, target.constraints) do
             {:ok, cast} ->
-              {Map.put(normalized, path, Types.to_json_safe(cast)), errors}
+              {Map.put(normalized, path, Types.to_json_safe(cast)), errors, unknowns}
 
             {:error, message} ->
               {normalized,
                [
                  %{path: path, message: Types.error_message(message), source: target.source}
                  | errors
-               ]}
+               ], unknowns}
 
             :error ->
-              {normalized, [%{path: path, message: "is invalid", source: target.source} | errors]}
+              {normalized, [%{path: path, message: "is invalid", source: target.source} | errors],
+               unknowns}
           end
       end
     end)
@@ -183,7 +240,7 @@ defmodule AshAgentTools.Validate do
     provided = MapSet.new(params, fn {raw_key, _} -> input_key(raw_key) end)
 
     for required <- contract.required, required not in provided do
-      %{path: Atom.to_string(required), message: "is required", source: nil}
+      %{path: Atom.to_string(required), message: "is required", source: nil, did_you_mean: nil}
     end
   end
 
@@ -206,6 +263,7 @@ defmodule AshAgentTools.Validate do
         path: Map.get(error, :path) |> build_error_path(),
         message: Types.error_message(error),
         source: nil,
+        did_you_mean: nil,
         ash_hint: ash_hint(error),
         ash_input_key: ash_input_key(error)
       }
@@ -217,6 +275,7 @@ defmodule AshAgentTools.Validate do
           path: nil,
           message: Types.error_message(error),
           source: nil,
+          did_you_mean: nil,
           ash_hint: nil,
           ash_input_key: nil
         }
