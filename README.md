@@ -28,6 +28,12 @@ AshAgentTools.diff_manifest("old.json", "new.json")  #=> %{summary: %{added: 1, 
 ctx.module.name        #=> "MyApp.Post"
 ctx.match.name         #=> :title  (the symbol whose declaration covers line 42)
 ctx.references         #=> actions that accept it, interfaces that call it, ...
+
+report = AshAgentTools.explain_trace(spans)  #=> errors innermost first,
+                                             #=> queries with N+1 flagged, policies, ...
+AshAgentTools.Runtime.top(20)          #=> the busiest processes, JSON-safe
+AshAgentTools.Runtime.tree("MyApp")    #=> your supervision tree
+AshAgentTools.Kaizen.attach()          #=> fold every tool miss into an ETS aggregate
 ```
 
 **Already attached to a running node?** Don't pay a mix boot per query —
@@ -45,6 +51,8 @@ mix ash_agent.validate MyApp.Post create '{"title": "Hi"}' --out report.json
 mix ash_agent.search tag                     # find symbols by name substring
 mix ash_agent.context lib/my_app/accounts/post.ex:42  # what lives at this position
 mix ash_agent.diff manifest-old.json manifest-new.json
+mix ash_agent.runtime snapshot               # also: top 20 | tree MyApp
+mix ash_agent.gaps                           # the kaizen tool-gap digest
 ```
 
 Both tasks emit **pure JSON on stdout** (application logger noise is
@@ -104,6 +112,26 @@ Keeping the API plain has two more benefits:
   Semantic Manifest, v0* RFC) into added/removed/changed symbol sets.
   Works on hand-authored fixtures today; the RFC's `--semantic` exporter is
   future work.
+- **Trace reduction** — `explain_trace/2` turns an OpenTelemetry span list
+  into a budget-bounded report: errors innermost first, queries with
+  structural **N+1 detection**, policies, notifications, async branches,
+  and the `ash.symbol_id`s in the trace — with an honest `truncated?` flag
+  and an optional `backend_url` deep-link. Pure and dependency-free: bring
+  spans from any source.
+- **BEAM runtime introspection** — `AshAgentTools.Runtime` answers
+  `snapshot/1`, `top/2` (busiest processes — the hidden-queue hunt), and
+  `tree/2` (supervision trees). When the host ships observer_cli 2.0 it
+  delegates to its heap-capped, JSON-safe snapshot worker (the versioned
+  `observer_cli.cli/v1` envelope, passed through verbatim); otherwise
+  built-in `Process`/`:ets`/`:supervisor` walks answer. `trace_id`/
+  `correlation_id` opts are echoed back, joining the state plane to a
+  trace.
+- **Kaizen loop** — tool misses (unknown input, search miss, context miss)
+  emit `[:ash_agent, :tool_gap]` telemetry with `did_you_mean` candidates
+  folded into the tools' output. `AshAgentTools.Kaizen.attach/0` is a
+  dev-only ETS sink; `digest/0` (or `mix ash_agent.gaps`) turns the
+  aggregate into the alias/doc-fix worklist. Emitting never raises and a
+  broken handler never breaks a tool.
 
 ## Installation
 
@@ -115,7 +143,10 @@ def deps do
 end
 ```
 
-Ash (`~> 3.0`) is the only runtime dependency besides `jason`.
+Ash (`~> 3.0`) is the only runtime dependency besides `jason` and
+`telemetry`. The BEAM runtime tools use observer_cli 2.0 (+ recon) when the
+**host application** ships them — both are optional, dev-only, and never
+pulled in by this package; without them the built-in backends answer.
 
 ## Usage rules for agents
 
@@ -137,6 +168,14 @@ rules land in your `AGENTS.md` automatically.
 - `diff_manifest/2` operates on manifest documents, not live modules — pair
   it with an exporter once one exists (the RFC's `mix ash.manifest.dump
   --semantic` proposal), or hand-authored fixtures.
+- `explain_trace/2` reports durations in the input's own time units, and its
+  N+1 detection is structural (identical sources under one parent); it does
+  not fetch spans from a backend.
+- `AshAgentTools.Runtime` observes the VM it runs in; a library application
+  without a running top supervisor reports `root: null`.
+- The kaizen ETS aggregate lives in the VM that attached it; a fresh mix
+  boot digests to `gaps: []` (run `mix ash_agent.gaps --out` from the
+  attached session, or call `digest/0` in-VM).
 
 ## Contributing
 

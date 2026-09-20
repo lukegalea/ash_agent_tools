@@ -63,6 +63,23 @@ do not assume prior knowledge of the API.
    declaration is unchanged. Works on hand-authored manifest documents
    today; exported manifests (the RFC's `--semantic` emitter) diff the same
    way once the exporter exists.
+8. **Debugging a trace?** `explain_trace/2` reduces a list of OpenTelemetry
+   spans into a budget-bounded report: errors innermost first, queries with
+   N+1 detection (identical sources under one parent collapse into one
+   flagged entry), policies, notifications, async branches, and the
+   `ash.symbol_id`s seen in the trace. Pure function — bring spans from any
+   source. See `AshAgentTools.Trace` for the accepted span shapes.
+9. **Debugging the VM itself?** `AshAgentTools.Runtime` is the *state* plane
+   that pairs with the trace's *time* plane (join on `trace_id`):
+   `Runtime.snapshot()`, `Runtime.top(20)`, `Runtime.tree("MyApp")` —
+   read-only, JSON-safe, and capped in size. Pass `trace_id:`/
+   `correlation_id:` to have them echoed into the report.
+10. **Missed? Tell the loop.** When a tool fails to answer — unknown input,
+    search with no hits, context on a non-Ash file — it emits a
+    `[:ash_agent, :tool_gap]` telemetry event and folds `did_you_mean`
+    candidates into its output so you can self-correct in one round-trip.
+    Hosts aggregate the events with `AshAgentTools.Kaizen` (see the kaizen
+    section below).
 
 Compose these freely: the typical loop is describe → validate → execute →
 on `Forbidden`, explain_forbidden → adjust inputs or actor.
@@ -110,14 +127,20 @@ For agents without code execution:
   the two-argument `PATH LINE` form)
 - `mix ash_agent.diff OLD NEW` — semantic-manifest diff report (does not
   boot your application; pure file processing)
+- `mix ash_agent.runtime snapshot|top|tree [N|APP]` — BEAM runtime views
+  (`--trace-id`/`--correlation-id` echoed; `top` takes `--sort`; `tree`
+  takes `--depth`); runs `app.start` first so you observe *your* tree
+- `mix ash_agent.gaps` — the kaizen tool-gap digest (reads the ETS
+  aggregate of the VM where `AshAgentTools.Kaizen.attach/0` was called; a
+  fresh mix boot has none)
 
-All tasks run `app.start` (except `ash_agent.diff`, which needs no
-application), print compact JSON by default (`--pretty` for humans), and
-guarantee **pure-JSON stdout**: Logger output from application start (repo
-wiring, banners, debug logs) is suppressed for the duration of the task.
-The describe/search tasks load the domains your app registers under
-`config :my_app, ash_domains: [...]`. Flags: `--out FILE` writes the JSON
-to a file instead of stdout; `--verbose` restores the logs (breaking
+All tasks run `app.start` (except `ash_agent.diff` and `ash_agent.gaps`,
+which need no application), print compact JSON by default (`--pretty` for
+humans), and guarantee **pure-JSON stdout**: Logger output from application
+start (repo wiring, banners, debug logs) is suppressed for the duration of
+the task. The describe/search tasks load the domains your app registers
+under `config :my_app, ash_domains: [...]`. Flags: `--out FILE` writes the
+JSON to a file instead of stdout; `--verbose` restores the logs (breaking
 pure-JSON stdout).
 
 ## Output conventions
@@ -150,6 +173,46 @@ pure-JSON stdout).
   §4.3 grammar, so policies (which have no name) appear as ordinal ids like
   `ash:v0:Mod#policies/0` — those ids are position-dependent by design.
 
+## Traces, runtime state, and the kaizen loop
+
+**`AshAgentTools.Trace.explain/2`** (facade: `explain_trace/2`) is the
+read-side of trace debugging. Feed it spans from any source — a host-side
+ring buffer, an OTLP export, a fixture — and read `report.errors`
+(innermost first), `report.queries` (`n_plus_one?: true` entries are your
+N+1s), `report.policy`, `report.async`, `report.symbols`, and
+`report.truncated?` before anything else. The `:budget` (default ~8000
+characters of encoded JSON) is enforced by dropping whole entries, never by
+silently shortening them; pass `:backend_url` to get a deep-link echoed
+back for the human you escalate to.
+
+**`AshAgentTools.Runtime`** is point-in-time VM introspection — the state
+plane that answers "which process is stuck?" while the trace answers "when
+did it happen?". `snapshot/1` for vitals, `top/2` for the busiest processes
+(`message_queue_len` first — the hidden-queue suspect), `tree/2` for
+supervision trees. When the host ships observer_cli 2.0 the answers come
+from its heap-capped, JSON-safe snapshot worker (the `observer_cli.cli/v1`
+envelope, passed through verbatim under `:response`); otherwise built-in
+`Process`/`:ets`/`:supervisor` walks answer, and `backend` in the report
+says which. Echo `trace_id:`/`correlation_id:` to join the planes.
+
+**The kaizen loop** turns tool failures into signal. Every miss emits
+`[:ash_agent, :tool_gap]` telemetry (`tool`, `gap_kind`, `question`,
+`detail` with `did_you_mean` candidates). Hosts can attach any `:telemetry`
+handler; the built-in dev sink is one call:
+
+```elixir
+AshAgentTools.Kaizen.attach()   # once per dev session (iex, .iex.exs, app start)
+# ... let agents miss things for a week ...
+AshAgentTools.Kaizen.digest()   # or: mix ash_agent.gaps
+```
+
+Read the digest as a worklist: recurring `unknown_input` gaps with the same
+candidates are an alias or doc fix waiting to happen; recurring
+`context_miss`es on the same directory mean the agent is looking for a
+resource that is not Ash (or is not loaded). `did_you_mean` in the tool
+output itself is the same signal, folded in at the moment of failure so the
+agent can self-correct immediately.
+
 ## Integration posture
 
 - Do not wrap this package in editor- or server-registered tool surfaces.
@@ -177,3 +240,15 @@ pure-JSON stdout).
   without debug info carry no annotations, so their symbols cannot be
   positioned (the module still cannot be matched by file) and the report
   comes back with `module: null`, `match: null`.
+- `explain_trace/2` reports durations in the input's own time units (it
+  cannot know whether an exporter produced nanoseconds or milliseconds),
+  and its N+1 detection is purely structural: identical sources under one
+  parent. It does not execute anything and does not fetch spans from a
+  backend.
+- `AshAgentTools.Runtime` observes the VM it runs in — point it at the node
+  that actually runs your application (the `runtime` task boots it for
+  you). The builtin tree walk reports a library application with no
+  running top supervisor as `root: null`; that is data, not a failure.
+- The kaizen ETS aggregate lives in the VM that attached it; a fresh mix
+  boot digests to `gaps: []`. Emitting never raises and a broken handler
+  never breaks a tool.
