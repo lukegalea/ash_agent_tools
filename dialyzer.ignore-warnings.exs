@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>
+#
+# SPDX-License-Identifier: MIT
+
 # Dialyzer suppressions for ash_agent_tools.
 #
 # Entries follow dialyxir's `.exs` ignore format ({file, warning_type});
