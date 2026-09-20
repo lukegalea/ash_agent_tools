@@ -28,7 +28,12 @@ Or from the shell, no code execution required:
 mix ash_agent.describe                       # discovery summary
 mix ash_agent.describe MyApp.Post create     # action contract
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'
+mix ash_agent.validate MyApp.Post create '{"title": "Hi"}' --out report.json
 ```
+
+Both tasks emit **pure JSON on stdout** (application logger noise is
+suppressed; `--verbose` keeps it) so output pipes straight into a JSON
+parser.
 
 ## Why plain functions and Mix tasks?
 

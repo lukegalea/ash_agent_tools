@@ -11,8 +11,12 @@ defmodule Mix.Tasks.AshAgent.Describe do
   Intended for agents and scripts that compose Ash actions without a human
   reading source code. Wraps `AshAgentTools.describe_resource/1` and
   `AshAgentTools.describe_action/2` (or prints a discovery summary when given
-  no arguments). The output is plain JSON; nothing is executed against your
-  data.
+  no arguments). Nothing is executed against your data.
+
+  **stdout is pure JSON, always.** Logger output from application start
+  (repo wiring, banners, debug logs) is suppressed while the task runs, so
+  the output pipes cleanly into a JSON parser; use `--verbose` if you want
+  the logs back.
 
   ## Usage
 
@@ -29,7 +33,9 @@ defmodule Mix.Tasks.AshAgent.Describe do
   ## Command line options
 
     * `--action` - the action name (may also be given as the second positional argument)
+    * `--out FILE` - write the JSON to FILE instead of stdout
     * `--pretty` - pretty-print the JSON (default: compact, which is cheaper for agents)
+    * `--verbose` - do not suppress Logger output (breaks pure-JSON stdout)
 
   ## Examples
 
@@ -45,37 +51,45 @@ defmodule Mix.Tasks.AshAgent.Describe do
 
   use Mix.Task
 
-  @requirements ["app.start"]
-
+  # app.start runs inside run/1 (not via @requirements) so the logger is
+  # silenced before the application boots.
   @impl Mix.Task
   def run(args) do
     {opts, positional, _invalid} =
-      OptionParser.parse(args, strict: [action: :string, pretty: :boolean])
+      OptionParser.parse(args,
+        strict: [action: :string, pretty: :boolean, out: :string, verbose: :boolean]
+      )
 
-    # Resource modules load lazily; make the no-argument discovery summary
-    # useful by loading the domains configured the way ash projects declare
-    # them (`config :my_app, ash_domains: [...]`).
-    load_configured_domains()
+    AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
+      Mix.Task.run("app.start")
 
-    json =
-      case {positional, opts[:action]} do
-        {[], nil} ->
-          summary()
+      # Resource modules load lazily; make the no-argument discovery summary
+      # useful by loading the domains configured the way ash projects declare
+      # them (`config :my_app, ash_domains: [...]`).
+      load_configured_domains()
 
-        {[resource], action} ->
-          AshAgentTools.describe_action(to_module!(resource), action_or_action_opt(action))
+      json =
+        case {positional, opts[:action]} do
+          {[], nil} ->
+            summary()
 
-        {[resource, action], nil} ->
-          AshAgentTools.describe_action(to_module!(resource), action)
+          {[resource], action} ->
+            AshAgentTools.describe_action(to_module!(resource), action_or_action_opt(action))
 
-        {_, action} when is_binary(action) ->
-          AshAgentTools.describe_action(to_module!(hd(positional)), action)
+          {[resource, action], nil} ->
+            AshAgentTools.describe_action(to_module!(resource), action)
 
-        _ ->
-          Mix.raise("Usage: mix ash_agent.describe [RESOURCE] [--action ACTION]")
-      end
+          {_, action} when is_binary(action) ->
+            AshAgentTools.describe_action(to_module!(hd(positional)), action)
 
-    print(json, opts)
+          _ ->
+            Mix.raise("Usage: mix ash_agent.describe [RESOURCE] [--action ACTION]")
+        end
+
+      json
+      |> Jason.encode!(pretty: !!opts[:pretty])
+      |> AshAgentTools.TaskOutput.write_json(opts)
+    end)
   end
 
   defp load_configured_domains do
@@ -114,11 +128,5 @@ defmodule Mix.Tasks.AshAgent.Describe do
       {:module, module} -> module
       {:error, reason} -> Mix.raise("Cannot load #{name}: #{inspect(reason)}")
     end
-  end
-
-  defp print(json, opts) do
-    json
-    |> Jason.encode!(pretty: !!opts[:pretty])
-    |> Mix.shell().info()
   end
 end

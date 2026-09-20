@@ -11,13 +11,20 @@ defmodule Mix.Tasks.AshAgent.Validate do
   data layer is touched: the params are cast with `Ash.Type.cast_input/3`
   and the changeset/query is built with `error?: false` and discarded.
 
+  **stdout is pure JSON, always.** Logger output from application start
+  (repo wiring, banners, debug logs) is suppressed while the task runs, so
+  the output pipes cleanly into a JSON parser; use `--verbose` if you want
+  the logs back.
+
   ## Usage
 
-      mix ash_agent.validate RESOURCE ACTION [JSON_PARAMS] [--pretty]
+      mix ash_agent.validate RESOURCE ACTION [JSON_PARAMS] [--out FILE] [--pretty] [--verbose]
 
   ## Command line options
 
+    * `--out FILE` - write the JSON to FILE instead of stdout
     * `--pretty` - pretty-print the JSON (default: compact)
+    * `--verbose` - do not suppress Logger output (breaks pure-JSON stdout)
 
   ## Examples
 
@@ -32,22 +39,29 @@ defmodule Mix.Tasks.AshAgent.Validate do
 
   use Mix.Task
 
-  @requirements ["app.start"]
-
+  # app.start runs inside run/1 (not via @requirements) so the logger is
+  # silenced before the application boots.
   @impl Mix.Task
   def run(args) do
-    {opts, positional, _invalid} = OptionParser.parse(args, strict: [pretty: :boolean])
+    {opts, positional, _invalid} =
+      OptionParser.parse(args, strict: [pretty: :boolean, out: :string, verbose: :boolean])
 
-    case positional do
-      [resource, action] ->
-        validate(resource, action, "{}", opts)
+    AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
+      Mix.Task.run("app.start")
 
-      [resource, action, params] ->
-        validate(resource, action, params, opts)
+      case positional do
+        [resource, action] ->
+          validate(resource, action, "{}", opts)
 
-      _ ->
-        Mix.raise("Usage: mix ash_agent.validate RESOURCE ACTION [JSON_PARAMS] [--pretty]")
-    end
+        [resource, action, params] ->
+          validate(resource, action, params, opts)
+
+        _ ->
+          Mix.raise(
+            "Usage: mix ash_agent.validate RESOURCE ACTION [JSON_PARAMS] [--out FILE] [--pretty]"
+          )
+      end
+    end)
   end
 
   defp validate(resource_name, action_name, params_json, opts) do
@@ -56,7 +70,7 @@ defmodule Mix.Tasks.AshAgent.Validate do
 
     AshAgentTools.validate_input(resource, action_name, params)
     |> Jason.encode!(pretty: !!opts[:pretty])
-    |> Mix.shell().info()
+    |> AshAgentTools.TaskOutput.write_json(opts)
   end
 
   defp ensure_module!(name) do

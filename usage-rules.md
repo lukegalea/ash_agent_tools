@@ -52,16 +52,27 @@ For agents without code execution:
   report
 
 Both tasks run `app.start`, print compact JSON by default (`--pretty` for
-humans), and load the domains your app registers under
-`config :my_app, ash_domains: [...]`.
+humans), load the domains your app registers under
+`config :my_app, ash_domains: [...]`, and guarantee **pure-JSON stdout**:
+Logger output from application start (repo wiring, banners, debug logs) is
+suppressed for the duration of the task. Flags: `--out FILE` writes the
+JSON to a file instead of stdout; `--verbose` restores the logs (breaking
+pure-JSON stdout).
 
 ## Output conventions
 
+- **stdout from the Mix tasks is pure JSON, always** — pipe it straight
+  into a JSON parser. Application logger noise is suppressed (unless
+  `--verbose`); compile output can still appear when the project is stale,
+  so compile before parsing if that matters.
 - All reports are plain maps of JSON-safe values — `Jason.encode!/1` always
   works. Atom values (module names, relationship types) encode as strings.
 - Input paths and `normalized_inputs` keys are strings, matching the JSON
   params you passed in. Cast values are normalized (e.g. `"7"` becomes `7`
   for `:integer`).
+- Unknown-input errors appear exactly once per input, with Ash's own hint
+  (valid-inputs list, "Perhaps you meant ...") folded into the structured
+  entry rather than duplicated.
 - Source locations come from Spark annotations (`file`, `line`, `column`);
   they are best-effort and `nil` where unavailable.
 - Types are normalized to readable strings: `:string`, `array<string>`,

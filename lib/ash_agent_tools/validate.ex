@@ -65,22 +65,51 @@ defmodule AshAgentTools.Validate do
   end
 
   # Cast-stage and missing-input errors are authoritative; build-stage errors
-  # are only kept when they say something new. Ash's build-stage messages
-  # restate earlier errors in wrapped form ("Invalid value provided for
-  # price: is invalid...", "attribute title is required"), so a containment
-  # check on the downcased message removes those duplicates.
+  # are only kept when they say something new. Two duplicate shapes exist:
+  #
+  #   * Ash re-reports unknown inputs at build stage ("No such input `x` ...
+  #     Perhaps you meant ...? ... Valid Inputs: ..."). The duplicate entry is
+  #     noise, but its hint is valuable — it is carried in `ash_hint` (see
+  #     build_errors/4), folded into our structured error (matched by input
+  #     path), and the build-stage copy is dropped.
+  #   * Other build-stage errors restate earlier errors in wrapped form
+  #     ("Invalid value provided for price: is invalid...", "attribute title
+  #     is required"), removed by a containment check on the message.
   defp dedupe_errors(cast_errors, missing_errors, build_errors) do
-    base = cast_errors ++ missing_errors
+    base = merge_ash_suggestions(cast_errors ++ missing_errors, build_errors)
 
     base_messages = Enum.map(base, &String.downcase(&1.message))
 
     build_kept =
       Enum.reject(build_errors, fn error ->
-        message = String.downcase(error.message)
-        Enum.any?(base_messages, &String.contains?(message, &1))
+        duplicate_of_base?(error, base_messages)
       end)
 
     base ++ build_kept
+  end
+
+  defp merge_ash_suggestions(base, build_errors) do
+    Enum.reduce(build_errors, base, fn
+      # not an Ash unknown-input duplicate: nothing to merge
+      %{ash_hint: nil}, base ->
+        base
+
+      %{ash_input_key: key, ash_hint: hint}, base ->
+        Enum.map(base, fn entry ->
+          if entry.path == key do
+            %{entry | message: entry.message <> "; Ash says: " <> hint}
+          else
+            entry
+          end
+        end)
+    end)
+  end
+
+  defp duplicate_of_base?(%{ash_hint: hint}, _base_messages) when hint != nil, do: true
+
+  defp duplicate_of_base?(error, base_messages) do
+    message = String.downcase(error.message)
+    Enum.any?(base_messages, &String.contains?(message, &1))
   end
 
   # Cast each provided param with Ash.Type.cast_input/3 against its
@@ -162,6 +191,11 @@ defmodule AshAgentTools.Validate do
   # failures accumulate instead of raising — and collect whatever errors Ash
   # reports at build time (e.g. argument casting and change setup). The
   # subject is discarded; nothing is executed.
+  #
+  # Raw splode structs are flattened to plain entries here, so any struct
+  # info dedupe needs must be captured up front: build-stage NoSuchInput
+  # errors duplicate our unknown-input entry, and their hint is kept in
+  # `ash_hint` for `dedupe_errors/3` to fold in.
   defp build_errors(resource, action, params, normalized) do
     subject = build_subject(resource, action, params, normalized)
 
@@ -171,12 +205,49 @@ defmodule AshAgentTools.Validate do
       %{
         path: Map.get(error, :path) |> build_error_path(),
         message: Types.error_message(error),
-        source: nil
+        source: nil,
+        ash_hint: ash_hint(error),
+        ash_input_key: ash_input_key(error)
       }
     end)
   rescue
-    error -> [%{path: nil, message: Types.error_message(error), source: nil}]
+    error ->
+      [
+        %{
+          path: nil,
+          message: Types.error_message(error),
+          source: nil,
+          ash_hint: nil,
+          ash_input_key: nil
+        }
+      ]
   end
+
+  # The NoSuchInput's own input name — not the splode `path`, which is empty
+  # on create/update subjects — is what ties the build-stage duplicate to
+  # our unknown-input entry.
+  defp ash_input_key(%Ash.Error.Invalid.NoSuchInput{input: input}), do: to_string(input)
+  defp ash_input_key(_), do: nil
+
+  # For an Ash "No such input ..." error, the hint is the message minus its
+  # leading "No such input ..." line (which duplicates ours), with lines
+  # joined for compactness.
+  defp ash_hint(%Ash.Error.Invalid.NoSuchInput{} = error) do
+    hint =
+      error
+      |> Exception.message()
+      |> String.split("\n")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> case do
+        [_duplicate_first_line | rest] -> Enum.join(rest, " | ")
+        [] -> ""
+      end
+
+    if hint == "", do: nil, else: hint
+  end
+
+  defp ash_hint(_), do: nil
 
   defp build_subject(resource, action, params, _normalized) do
     case action.type do

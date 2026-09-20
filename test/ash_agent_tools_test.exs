@@ -217,11 +217,29 @@ defmodule AshAgentToolsTest do
       assert Enum.any?(report.errors, &(&1.path == "title" and &1.message == "is required"))
     end
 
-    test "reports unknown inputs" do
+    test "reports unknown inputs exactly once, with Ash's hint folded in" do
       report = AshAgentTools.validate_input(Post, :create, %{"title" => "ok", "wat" => 1})
 
       assert report.valid? == false
-      assert Enum.any?(report.errors, &(&1.path == "wat" and &1.message =~ "unknown input"))
+      assert Enum.count(report.errors) == 1
+
+      [error] = report.errors
+      assert error.path == "wat"
+      assert error.message =~ "unknown input"
+      # Ash's build-stage NoSuchInput hint (valid inputs list / suggestions)
+      # is appended to our structured entry instead of duplicating it.
+      assert error.message =~ "Valid Inputs"
+    end
+
+    test "unknown input on an argument-taking action surfaces Ash's suggestion" do
+      report = AshAgentTools.validate_input(Post, :by_tag, %{"tag" => "elixir", "wat" => 1})
+
+      assert report.valid? == false
+      wat_errors = Enum.filter(report.errors, &(&1.path == "wat"))
+      assert length(wat_errors) == 1
+      assert Enum.any?(report.errors, &(&1.message =~ "Perhaps you meant to add an argument"))
+      # the raw NoSuchInput duplicate is gone
+      refute Enum.any?(report.errors, &(&1.message =~ ~r/^no such input/i))
     end
 
     test "enforces atom constraints" do
