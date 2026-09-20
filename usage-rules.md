@@ -4,12 +4,13 @@ AshAgentTools is a read-only introspection layer over Ash. It answers an
 agent's questions about a project's domains, resources, and actions as plain
 JSON-encodable maps, validates action inputs without running anything, lists
 the policies that can forbid an action, searches symbol names across
-resources, and diffs semantic-manifest documents. It ships as **regular
-library code plus this file** — deliberately *not* as registered MCP tools
-or any other tool-surface integration, which keeps it usable from
-`project_eval`, Livebook, Mix tasks, or any future hosted tool-definition
-API. Read these rules before using it; do not assume prior knowledge of the
-API.
+resources, describes the Ash context at any source file position, diffs
+semantic-manifest documents, and tells you how to use all of that in-VM
+without a mix boot. It ships as **regular library code plus this file** —
+deliberately *not* as registered MCP tools or any other tool-surface
+integration, which keeps it usable from `project_eval`, Livebook, Mix tasks,
+or any future hosted tool-definition API. Read these rules before using it;
+do not assume prior knowledge of the API.
 
 ## The read-only contract
 
@@ -44,7 +45,17 @@ API.
    (case-insensitive; optional `kinds:` filter), each hit with its declaring
    resource, normalized type, and source location. Useful between steps 1
    and 2, when you know a fragment like `"tag"` but not where it lives.
-6. **Track DSL changes across revisions**: `diff_manifest/2` diffs two
+6. **Standing at a file position?** `context/3` takes a file path and a
+   1-based line and returns which loaded Ash resource/domain declares there,
+   which symbol's declaration covers the line, the nearest symbols, what
+   references the matched symbol (actions that accept an attribute, code
+   interfaces that call an action, relationships wired through it), and —
+   when `priv/semantic/**/*.json` manifests exist — manifest-derived
+   relations. Point it at a compiler error, a diff hunk, or wherever your
+   cursor landed: one call replaces the grep → read → re-grep loop, and a
+   miss is graceful (`{:ok, %{match: nil, nearest: [...]}}`), never an
+   error.
+7. **Track DSL changes across revisions**: `diff_manifest/2` diffs two
    semantic-manifest JSON documents (see the Semantic Manifest v0 RFC for
    the id grammar, `ash:v0:<Module>#<dsl_path>/<name>`) by stable symbol id
    into `added`/`removed`/`changed` sets. "Changed" compares content only —
@@ -55,6 +66,33 @@ API.
 
 Compose these freely: the typical loop is describe → validate → execute →
 on `Forbidden`, explain_forbidden → adjust inputs or actor.
+
+## Prefer in-VM calls over mix boots
+
+A per-query `mix` boot costs seconds to minutes (cold compile, dependency
+resolution) — measured between ~10s warm and ~2min cold — which is exactly
+why agents fall back to grepping. If your session is attached to a node
+that already runs the application (`iex --server`, `iex -S mix phx.server`,
+a Tidewave-style `project_eval` tool, Livebook), **prefer evaluating the
+API directly; do not shell out to `mix ash_agent.*` at all**. Every
+function is a pure, instant call over already-loaded modules.
+
+`AshAgentTools.eval_docs/0` returns the exact snippet to evaluate: the
+facade module, every public function with an example, and a worked
+describe → validate loop. When in doubt, evaluate `AshAgentTools.eval_docs()`
+first and follow it.
+
+```elixir
+# the whole contract in one string — evaluate and follow it
+AshAgentTools.eval_docs()
+
+# then call directly, no mix boot:
+AshAgentTools.describe_action(MyApp.Post, :create)
+AshAgentTools.validate_input(MyApp.Post, :create, %{"title" => "Hi"})
+AshAgentTools.context("lib/my_app/accounts/post.ex", 42)
+```
+
+The Mix tasks remain for shell-only agents; they wrap the same functions.
 
 ## Mix tasks
 
@@ -67,6 +105,9 @@ For agents without code execution:
   report
 - `mix ash_agent.search TERM [--kind KIND]...` — symbol search across loaded
   resources; prints `{"query","kinds","count","results"}`
+- `mix ash_agent.context lib/my_app/accounts/post.ex:42` — the resource,
+  symbol, nearest symbols, and references at a file position (also accepts
+  the two-argument `PATH LINE` form)
 - `mix ash_agent.diff OLD NEW` — semantic-manifest diff report (does not
   boot your application; pure file processing)
 
@@ -95,6 +136,11 @@ pure-JSON stdout).
   entry rather than duplicated.
 - Source locations come from Spark annotations (`file`, `line`, `column`);
   they are best-effort and `nil` where unavailable.
+- `context/3` derives symbol spans from consecutive annotation starts (they
+  are best-effort, not parsed block ends), and its `manifests` report carries
+  the manifest document's string values verbatim. With no semantic manifests
+  present (`priv/semantic/**/*.json`, or the `:manifests` option) the field
+  is `nil`.
 - Types are normalized to readable strings: `:string`, `array<string>`,
   `ci_string` (builtins report their short name; extensions keep their
   module name). Search hits on actions/relationships report the action /
@@ -127,3 +173,7 @@ pure-JSON stdout).
   actually runs.
 - `explain_forbidden/2` requires `Ash.Policy.Authorizer` for policy
   listings; resources with other authorizers get a pointer instead.
+- `context/3` positions symbols via Spark annotations; modules compiled
+  without debug info carry no annotations, so their symbols cannot be
+  positioned (the module still cannot be matched by file) and the report
+  comes back with `module: null`, `match: null`.

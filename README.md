@@ -23,7 +23,17 @@ AshAgentTools.explain_forbidden(MyApp.Post, :create)
 
 AshAgentTools.semantic_search("tag")   #=> [%{resource: MyApp.Post, kind: :action, name: :by_tag, ...}]
 AshAgentTools.diff_manifest("old.json", "new.json")  #=> %{summary: %{added: 1, ...}, ...}
+
+{:ok, ctx} = AshAgentTools.context("lib/my_app/accounts/post.ex", 42)
+ctx.module.name        #=> "MyApp.Post"
+ctx.match.name         #=> :title  (the symbol whose declaration covers line 42)
+ctx.references         #=> actions that accept it, interfaces that call it, ...
 ```
+
+**Already attached to a running node?** Don't pay a mix boot per query —
+evaluate the API directly (via `project_eval`, Livebook, `iex --server`).
+`AshAgentTools.eval_docs()` returns the exact snippet to evaluate: the
+facade module, every public function with an example, and a worked loop.
 
 Or from the shell, no code execution required:
 
@@ -33,6 +43,7 @@ mix ash_agent.describe MyApp.Post create     # action contract
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}' --out report.json
 mix ash_agent.search tag                     # find symbols by name substring
+mix ash_agent.context lib/my_app/accounts/post.ex:42  # what lives at this position
 mix ash_agent.diff manifest-old.json manifest-new.json
 ```
 
@@ -77,6 +88,16 @@ Keeping the API plain has two more benefits:
   calculations, and relationships across loaded resources by name substring
   (case-insensitive, optional kind filter), each hit with its normalized
   type and Spark source location.
+- **Position context** — `context/3` takes a file path and 1-based line and
+  returns which loaded Ash resource/domain declares there, the symbol whose
+  declaration span covers the line, the nearest symbols, what references
+  the matched symbol (actions that accept an attribute, code interfaces
+  that call an action, relationships wired through it), and — when
+  `priv/semantic/**/*.json` manifests exist — manifest-derived relations.
+  One call replaces the grep → read → re-grep loop; misses are graceful.
+- **In-VM bootstrap** — `eval_docs/0` returns the exact snippets an agent
+  attached to a running node should evaluate to use every function
+  instantly, skipping the seconds-to-minutes per-query mix boot.
 - **Manifest diffing** — `diff_manifest/2` structurally diffs two
   semantic-manifest JSON documents by stable symbol id (the
   `ash:v0:<Module>#<dsl_path>/<name>` grammar proposed in the *Spark/Ash
@@ -110,6 +131,9 @@ rules land in your `AGENTS.md` automatically.
   and actor-dependent validations surface when an action actually runs.
 - `explain_forbidden/2` is a guidance stub, not an evaluator; use `Ash.can?/3`
   for real verdicts.
+- `context/3` positions symbols via Spark annotations; modules compiled
+  without debug info carry none, so their files cannot be matched (the
+  report comes back `module: null`, `match: null`).
 - `diff_manifest/2` operates on manifest documents, not live modules — pair
   it with an exporter once one exists (the RFC's `mix ash.manifest.dump
   --semantic` proposal), or hand-authored fixtures.
