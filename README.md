@@ -45,6 +45,7 @@ Or from the shell, no code execution required:
 
 ```sh
 mix ash_agent.describe                       # discovery summary
+mix ash_agent.describe MyApp.Post            # resource description
 mix ash_agent.describe MyApp.Post create     # action contract
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}' --out report.json
@@ -53,6 +54,8 @@ mix ash_agent.context lib/my_app/accounts/post.ex:42  # what lives at this posit
 mix ash_agent.diff manifest-old.json manifest-new.json
 mix ash_agent.runtime snapshot               # also: top 20 | tree MyApp
 mix ash_agent.gaps                           # the kaizen tool-gap digest
+mix ash_agent.edit replace MyApp.Post/attributes/score \
+  --body "attribute :score, :integer, allow_nil?: false"   # dry-run; add --write --expected-digest D to apply
 ```
 
 Both tasks emit **pure JSON on stdout** (application logger noise is
@@ -132,6 +135,26 @@ Keeping the API plain has two more benefits:
   dev-only ETS sink; `digest/0` (or `mix ash_agent.gaps`) turns the
   aggregate into the alias/doc-fix worklist. Emitting never raises and a
   broken handler never breaks a tool.
+- **Name paths & semantic edits** — `resolve/1` pins any DSL entity by
+  name path (`MyApp.Post/actions/by_tag`, `.../policies/policy[0]`,
+  suffix-matched modules) with spans, provenance, and a shape digest;
+  `AshAgentTools.Edit` performs anchor edits (`replace_entity_block`,
+  `insert_before_entity`, `insert_after_entity`, `safe_delete_entity`)
+  with a mechanical read-before-edit digest handshake, a provenance guard
+  against transformer-injected declarations, atomic writes that preserve
+  EOLs/indentation, and a post-edit compile+validate gate that reverts on
+  failure. `mix ash_agent.edit` is dry-run by default. Search and context
+  outputs use Serena-style truncation ladders (over-limit refinement
+  errors, capped lists with shown/total markers).
+
+## Compile-only boot
+
+The introspection tasks (`describe`, `validate`, `search`, `context`,
+`edit`) boot `app.config` + compile only — **your application is never
+started**: no Oban queues consuming jobs mid-task, no projectors draining,
+no side effects. Introspection needs compiled DSL state, not a running
+app. Only `runtime` boots the application (the running tree is the point),
+and `diff`/`gaps` need nothing at all.
 
 ## Installation
 
@@ -143,10 +166,12 @@ def deps do
 end
 ```
 
-Ash (`~> 3.0`) is the only runtime dependency besides `jason` and
-`telemetry`. The BEAM runtime tools use observer_cli 2.0 (+ recon) when the
-**host application** ships them — both are optional, dev-only, and never
-pulled in by this package; without them the built-in backends answer.
+Ash (`~> 3.0`) is the only runtime dependency besides `jason`,
+`telemetry`, and `sourceror` (precise AST ranges for the edit tools; small,
+pure Elixir, and already in most Ash projects' graphs via igniter). The
+BEAM runtime tools use observer_cli 2.0 (+ recon) when the **host
+application** ships them — both are optional, dev-only, and never pulled in
+by this package; without them the built-in backends answer.
 
 ## Usage rules for agents
 

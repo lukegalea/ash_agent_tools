@@ -133,15 +133,27 @@ For agents without code execution:
 - `mix ash_agent.gaps` — the kaizen tool-gap digest (reads the ETS
   aggregate of the VM where `AshAgentTools.Kaizen.attach/0` was called; a
   fresh mix boot has none)
+- `mix ash_agent.edit OP NAME_PATH [--body ...] [--write --expected-digest D]`
+  — semantic DSL edits: `replace`, `insert-before`, `insert-after`,
+  `delete`; dry-run by default
 
-All tasks run `app.start` (except `ash_agent.diff` and `ash_agent.gaps`,
-which need no application), print compact JSON by default (`--pretty` for
-humans), and guarantee **pure-JSON stdout**: Logger output from application
-start (repo wiring, banners, debug logs) is suppressed for the duration of
-the task. The describe/search tasks load the domains your app registers
-under `config :my_app, ash_domains: [...]`. Flags: `--out FILE` writes the
-JSON to a file instead of stdout; `--verbose` restores the logs (breaking
-pure-JSON stdout).
+All tasks run under the **compile-only boot contract** (except
+`ash_agent.runtime`, which is *justified* in a full boot — the running tree
+is the point — and `ash_agent.diff`/`ash_agent.gaps`, which need no
+application at all): `app.config` + compile + the domains configured under
+`config :my_app, ash_domains: [...]`. **The application is not started** —
+no Oban queues consuming jobs, no projectors draining, no endpoints. If a
+tool needs the running tree, that is a different tool.
+
+Tasks print compact JSON by default (`--pretty` for humans) and guarantee
+**pure-JSON stdout**: Logger output is suppressed and compilation output is
+routed away from stdout for the duration of the task. Errors are answers
+too — `describe`/`validate`/`search`/`edit` emit
+`{"is_error?": true, ...}` JSON on stdout and exit non-zero (unknown
+actions carry `did_you_mean`). Cold starts may still print dependency
+compilation before the task body runs, so compile before parsing if that
+matters. Flags: `--out FILE` writes the JSON to a file instead of stdout;
+`--verbose` restores the logs (breaking pure-JSON stdout).
 
 ## Output conventions
 
@@ -212,6 +224,49 @@ candidates are an alias or doc fix waiting to happen; recurring
 resource that is not Ash (or is not loaded). `did_you_mean` in the tool
 output itself is the same signal, folded in at the moment of failure so the
 agent can self-correct immediately.
+
+## Name paths and semantic edits
+
+Every DSL entity has a stable **name path** — the DSL-native equivalent of
+Serena's `Class/method` addressing:
+
+    Module/attributes/name        Module/relationships/name
+    Module/actions/name           Module/policies/policy[0]
+    Module/calculations/name      Domain/code_interfaces/name
+
+The module part may be a dot-boundary **suffix** (`User/actions/read`);
+a leading `/` demands the full module name. Policies are unnamed, so they
+are addressed by occurrence. `AshAgentTools.resolve/1` returns the symbol
+(kind, type, span, `provenance: :source | :synthetic`) plus the file's
+shape digest; misses raise with did_you_mean candidates, ambiguous
+suffixes raise with the match list — refine and retry.
+
+**`AshAgentTools.Edit`** performs semantic edits at those anchors:
+`replace_entity_block/3`, `insert_before_entity/3`,
+`insert_after_entity/3`, `safe_delete_entity/2`. The safety model is
+mechanical, not prompt-level:
+
+1. **Dry-run default.** Without `write: true` you get the planned diff and
+   the file's shape digest; nothing is written.
+2. **Digest handshake.** Writes require `expected_digest` from your last
+   read — any change to the file in between refuses the edit
+   (`stale_file`).
+3. **Provenance guard.** Transformer-injected declarations (no Spark
+   annotation — `defaults [:read]` actions and friends) are refused
+   (`synthetic_symbol`); edit the declaring construct instead.
+4. **Atomic write** with the file's EOLs and indentation preserved.
+5. **Post-edit gate.** The file is recompiled with diagnostics captured and
+   the resource runs a per-action validate canary; a failed gate reverts
+   the file and reports the diagnostics. `safe_delete_entity/2` refuses
+   while anything references the entity (`has_references`, with the list).
+
+`mix ash_agent.edit OP NAME_PATH [--body ... | --body-file FILE] [--write
+--expected-digest D]` wraps all of it with the same JSON contract.
+
+Truncation is a ladder, not a wall: `semantic_search/2` takes
+`:max_results` (default 100) and refuses over-limit searches with
+per-resource counts; `context/3` takes `:max_list` (default 25) and marks
+capped lists with `*_truncated?` shown/total entries.
 
 ## Integration posture
 
