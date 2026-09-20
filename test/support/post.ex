@@ -49,6 +49,10 @@ defmodule AshAgentTools.Test.Post do
     end
   end
 
+  calculations do
+    calculate :title_length, :integer, expr(string_length(title))
+  end
+
   actions do
     defaults [:read, :destroy]
 

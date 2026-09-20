@@ -31,6 +31,8 @@ defmodule AshAgentTools do
     * `describe_action/2` — accepted inputs, types, return shape, code interfaces
     * `validate_input/3` — cast and validate params without running anything
     * `explain_forbidden/2` — list the policies that can deny an action
+    * `semantic_search/2` — find symbols by name substring across resources
+    * `diff_manifest/2` — structural diff of two semantic-manifest JSON files
 
   All functions raise `ArgumentError` when pointed at something that is not a
   loaded Ash resource (or an action that does not exist); discovery functions
@@ -43,6 +45,8 @@ defmodule AshAgentTools do
   $ mix ash_agent.describe MyApp.Post
   $ mix ash_agent.describe MyApp.Post --action create
   $ mix ash_agent.validate MyApp.Post create '{"title": "Hello"}'
+  $ mix ash_agent.search tag
+  $ mix ash_agent.diff old.json new.json
   ```
 
   See `usage-rules.md` at the package root for agent-oriented guidance.
@@ -170,4 +174,58 @@ defmodule AshAgentTools do
   @spec explain_forbidden(module(), atom() | String.t() | nil) :: map()
   def explain_forbidden(resource, action_name \\ nil),
     do: AshAgentTools.Forbidden.explain_forbidden(resource, action_name)
+
+  @doc """
+  Searches attributes, actions, calculations, and relationships across all
+  loaded Ash resources by name substring.
+
+  Returns a sorted, JSON-encodable list of hits — each with the declaring
+  `resource`, symbol `kind`, `name`, normalized `type`, and best-effort
+  Spark `source` location. Matching is case-insensitive on the symbol name;
+  pass `kinds:` to restrict the search (see `AshAgentTools.Search.semantic_search/2`
+  for the full contract). Raises `ArgumentError` for a blank term or an
+  unknown kind in the filter.
+
+  ## Examples
+
+      iex> results = AshAgentTools.semantic_search("tag")
+      iex> hit = Enum.find(results, &(&1.resource == AshAgentTools.Test.Post and &1.kind == :action and &1.name == :by_tag))
+      iex> hit.type
+      :read
+
+      iex> results = AshAgentTools.semantic_search("score", kinds: [:attribute])
+      iex> Enum.map(results, & &1.type)
+      ["integer"]
+
+  """
+  @spec semantic_search(String.t(), keyword()) :: [map()]
+  def semantic_search(term, opts \\ []), do: AshAgentTools.Search.semantic_search(term, opts)
+
+  @doc """
+  Structurally diffs two semantic-manifest JSON documents by stable symbol
+  id (`ash:v0:<Module>#<dsl_path>/<name>`, RFC §4.3).
+
+  Returns a JSON-encodable report with `added`, `removed`, and `changed`
+  symbol sets (plus counts in `summary`). "Changed" compares each symbol's
+  content per RFC §4.4 — everything except `hashes`, `span`, and
+  `property_spans` — so moved declarations do not count as changes and
+  hand-authored fixtures with placeholder hashes diff correctly. Works on
+  hand-authored manifest documents today; the RFC's
+  `mix ash.manifest.dump --semantic` exporter is future work. Raises
+  `ArgumentError` for unreadable files, invalid JSON, or documents without
+  well-formed symbol ids.
+
+  ## Examples
+
+      iex> report = AshAgentTools.diff_manifest("test/fixtures/manifest_v1.json", "test/fixtures/manifest_v2.json")
+      iex> report.summary
+      %{added: 1, removed: 1, changed: 1, unchanged: 2}
+
+      iex> report = AshAgentTools.diff_manifest("test/fixtures/manifest_v1.json", "test/fixtures/manifest_v2.json")
+      iex> Enum.map(report.removed, & &1.id)
+      ["ash:v0:Example.Post#attributes/score"]
+
+  """
+  @spec diff_manifest(String.t(), String.t()) :: map()
+  def diff_manifest(old_path, new_path), do: AshAgentTools.Diff.diff_manifest(old_path, new_path)
 end

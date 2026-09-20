@@ -1,0 +1,105 @@
+{
+  "manifest_version": "0",
+  "ash_schema_version": "1.0.0",
+  "note": "Hand-authored test fixture (older revision) for AshAgentTools.diff_manifest/2. Shape follows docs/rfc/semantic-manifest-v0.md; hash values are illustrative placeholders.",
+  "emitter": {
+    "name": "hand-authored",
+    "version": "0.0.0"
+  },
+  "module": "Example.Post",
+  "module_kind": "resource",
+  "symbols": [
+    {
+      "id": "ash:v0:Example.Post#resource",
+      "kind": "resource",
+      "name": "Post",
+      "dsl_path": [],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 1, "column": 1 },
+        "end": { "line": 60, "column": 4 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "shape": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "content": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "domain": "Example.Domain",
+      "primary_key": ["id"]
+    },
+    {
+      "id": "ash:v0:Example.Post#attributes/title",
+      "kind": "attribute",
+      "name": "title",
+      "dsl_path": ["attributes"],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 10, "column": 5 },
+        "end": { "line": 13, "column": 8 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "shape": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "content": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "field_kind": "attribute",
+      "type": {
+        "accepted": {
+          "kind": "string",
+          "name": "String",
+          "module": "Ash.Type.String",
+          "constraints": {}
+        },
+        "normalized": {
+          "kind": "string",
+          "name": "String",
+          "module": "Ash.Type.String",
+          "constraints": {}
+        }
+      },
+      "allow_nil": false,
+      "primary_key": false
+    },
+    {
+      "id": "ash:v0:Example.Post#attributes/score",
+      "kind": "attribute",
+      "name": "score",
+      "dsl_path": ["attributes"],
+      "span": null,
+      "hashes": {
+        "identity": "sha256:cccccccccccccccccccccccccccccccc",
+        "shape": "sha256:cccccccccccccccccccccccccccccccc",
+        "content": "sha256:cccccccccccccccccccccccccccccccc"
+      },
+      "field_kind": "attribute",
+      "type": {
+        "accepted": { "kind": "integer", "name": "Integer", "module": "Ash.Type.Integer" },
+        "normalized": { "kind": "integer", "name": "Integer", "module": "Ash.Type.Integer" }
+      },
+      "allow_nil": true,
+      "primary_key": false
+    },
+    {
+      "id": "ash:v0:Example.Post#actions/create",
+      "kind": "action",
+      "name": "create",
+      "dsl_path": ["actions"],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 20, "column": 5 },
+        "end": { "line": 24, "column": 8 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:dddddddddddddddddddddddddddddddd",
+        "shape": "sha256:dddddddddddddddddddddddddddddddd",
+        "content": "sha256:dddddddddddddddddddddddddddddddd"
+      },
+      "action_type": "create",
+      "primary": true,
+      "required_inputs": ["title"]
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "manifest_version": "0",
+  "ash_schema_version": "1.0.0",
+  "note": "Hand-authored test fixture (newer revision) for AshAgentTools.diff_manifest/2, diffed against manifest_v1.json. Exercises the diff verdicts: the resource symbol moved down the file (span-only change -> unchanged), title gained a max_length constraint (content change -> changed, with fresh hashes), score was removed, publish was added. Hash values are illustrative placeholders.",
+  "emitter": {
+    "name": "hand-authored",
+    "version": "0.0.0"
+  },
+  "module": "Example.Post",
+  "module_kind": "resource",
+  "symbols": [
+    {
+      "id": "ash:v0:Example.Post#resource",
+      "kind": "resource",
+      "name": "Post",
+      "dsl_path": [],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 1, "column": 1 },
+        "end": { "line": 64, "column": 4 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "shape": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "content": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "domain": "Example.Domain",
+      "primary_key": ["id"]
+    },
+    {
+      "id": "ash:v0:Example.Post#attributes/title",
+      "kind": "attribute",
+      "name": "title",
+      "dsl_path": ["attributes"],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 14, "column": 5 },
+        "end": { "line": 19, "column": 8 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "shape": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "content": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "field_kind": "attribute",
+      "type": {
+        "accepted": {
+          "kind": "string",
+          "name": "String",
+          "module": "Ash.Type.String",
+          "constraints": {}
+        },
+        "normalized": {
+          "kind": "string",
+          "name": "String",
+          "module": "Ash.Type.String",
+          "constraints": {}
+        }
+      },
+      "allow_nil": false,
+      "primary_key": false,
+      "constraints": { "max_length": 160 }
+    },
+    {
+      "id": "ash:v0:Example.Post#actions/create",
+      "kind": "action",
+      "name": "create",
+      "dsl_path": ["actions"],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 30, "column": 5 },
+        "end": { "line": 34, "column": 8 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:dddddddddddddddddddddddddddddddd",
+        "shape": "sha256:dddddddddddddddddddddddddddddddd",
+        "content": "sha256:dddddddddddddddddddddddddddddddd"
+      },
+      "action_type": "create",
+      "primary": true,
+      "required_inputs": ["title"]
+    },
+    {
+      "id": "ash:v0:Example.Post#actions/publish",
+      "kind": "action",
+      "name": "publish",
+      "dsl_path": ["actions"],
+      "span": {
+        "file": "lib/example/post.ex",
+        "start": { "line": 36, "column": 5 },
+        "end": { "line": 39, "column": 8 },
+        "fidelity": "exact"
+      },
+      "hashes": {
+        "identity": "sha256:ffffffffffffffffffffffffffffffff",
+        "shape": "sha256:ffffffffffffffffffffffffffffffff",
+        "content": "sha256:ffffffffffffffffffffffffffffffff"
+      },
+      "action_type": "update",
+      "primary": false,
+      "required_inputs": []
+    }
+  ]
+}

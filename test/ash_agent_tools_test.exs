@@ -6,6 +6,7 @@ defmodule AshAgentToolsTest do
   use ExUnit.Case, async: true
 
   doctest AshAgentTools
+  doctest AshAgentTools.Search
   doctest AshAgentTools.Types
 
   alias AshAgentTools.Test.{Author, Comment, Domain, Guarded, Post}
@@ -338,6 +339,228 @@ defmodule AshAgentToolsTest do
 
     test "is JSON-encodable" do
       assert is_binary(Jason.encode!(AshAgentTools.explain_forbidden(Guarded, :read)))
+    end
+  end
+
+  describe "semantic_search/2" do
+    test "finds attributes, actions, calculations, and relationships by substring" do
+      results = AshAgentTools.semantic_search("tag")
+
+      kinds =
+        results
+        |> Enum.map(&{&1.resource, &1.kind, &1.name})
+        |> MapSet.new()
+
+      assert MapSet.member?(kinds, {Post, :attribute, :tags})
+      assert MapSet.member?(kinds, {Post, :action, :by_tag})
+
+      refute Enum.any?(results, &(&1.resource != Post))
+    end
+
+    test "matches are case-insensitive" do
+      assert [%{name: :tags}] = AshAgentTools.semantic_search("TAG", kinds: [:attribute])
+    end
+
+    test "hits carry resource, kind, name, type, and source" do
+      hit = Enum.find(AshAgentTools.semantic_search("tag"), &(&1.kind == :attribute))
+
+      assert hit.resource == Post
+      assert hit.name == :tags
+      assert hit.type == "array<string>"
+      assert hit.source
+      assert hit.source.file =~ "post.ex"
+      assert is_integer(hit.source.line)
+    end
+
+    test "action hits carry the action type" do
+      hit = Enum.find(AshAgentTools.semantic_search("by_tag"), &(&1.kind == :action))
+      assert hit.type == :read
+    end
+
+    test "finds calculations" do
+      hits = Enum.filter(AshAgentTools.semantic_search("length"), &(&1.kind == :calculation))
+
+      assert [%{resource: resource, name: :title_length, type: "integer"}] = hits
+      assert resource == Post
+    end
+
+    test "finds relationships" do
+      hits = AshAgentTools.semantic_search("author", kinds: :relationship)
+
+      assert [%{resource: resource, name: :author, type: :belongs_to}] = hits
+      assert resource == Post
+    end
+
+    test "kind filter accepts a single kind or a list" do
+      single = AshAgentTools.semantic_search("tag", kinds: :attribute)
+      assert Enum.all?(single, &(&1.kind == :attribute))
+
+      multiple = AshAgentTools.semantic_search("tag", kinds: [:attribute, :action])
+      assert Enum.map(multiple, & &1.kind) |> Enum.uniq() |> Enum.sort() == [:action, :attribute]
+    end
+
+    test "raises on unknown kinds" do
+      assert_raise ArgumentError, ~r/unknown symbol kind/, fn ->
+        AshAgentTools.semantic_search("tag", kinds: [:atribute])
+      end
+    end
+
+    test "raises on blank or non-binary terms" do
+      assert_raise ArgumentError, ~r/non-blank string/, fn ->
+        AshAgentTools.semantic_search("   ")
+      end
+
+      assert_raise ArgumentError, ~r/must be a string/, fn ->
+        AshAgentTools.semantic_search(:tag)
+      end
+    end
+
+    test "results are sorted by resource, kind, name" do
+      results = AshAgentTools.semantic_search("t")
+
+      sorted =
+        Enum.sort_by(
+          results,
+          &{AshAgentTools.Registry.module_name(&1.resource), &1.kind, &1.name}
+        )
+
+      assert results == sorted
+    end
+
+    test "no match is an empty list; results are JSON-encodable" do
+      assert [] = AshAgentTools.semantic_search("no-such-symbol-xyz")
+      assert is_binary(Jason.encode!(AshAgentTools.semantic_search("t")))
+    end
+  end
+
+  describe "diff_manifest/2" do
+    @v1 "test/fixtures/manifest_v1.json"
+    @v2 "test/fixtures/manifest_v2.json"
+
+    test "summarizes add/remove/change by stable symbol id" do
+      report = AshAgentTools.diff_manifest(@v1, @v2)
+
+      assert report.summary == %{added: 1, removed: 1, changed: 1, unchanged: 2}
+      assert report.old_file == @v1
+      assert report.new_file == @v2
+    end
+
+    test "reports added and removed symbols" do
+      report = AshAgentTools.diff_manifest(@v1, @v2)
+
+      assert Enum.map(report.added, & &1.id) == ["ash:v0:Example.Post#actions/publish"]
+      assert Enum.map(report.removed, & &1.id) == ["ash:v0:Example.Post#attributes/score"]
+
+      publish = hd(report.added)
+      assert publish.kind == "action"
+      assert publish.name == "publish"
+
+      score = hd(report.removed)
+      assert score.kind == "attribute"
+      assert score.name == "score"
+    end
+
+    test "reports content changes, ignoring hashes and spans" do
+      report = AshAgentTools.diff_manifest(@v1, @v2)
+
+      assert [%{} = title] = report.changed
+      assert title.id == "ash:v0:Example.Post#attributes/title"
+      assert title.kind == "attribute"
+
+      assert Enum.map(title.changed_fields, & &1.field) == ["constraints"]
+
+      constraints_change = hd(title.changed_fields)
+      assert constraints_change.old == nil
+      assert constraints_change.new == %{"max_length" => 160}
+    end
+
+    test "a span-only move (and fresh hashes) do not count as changes" do
+      # Both fixtures' `resource` symbols have different spans between v1 and
+      # v2 (the declaration moved down the file); per RFC §4.4 the span is
+      # excluded from content, so the symbol is unchanged.
+      report = AshAgentTools.diff_manifest(@v2, @v1)
+
+      refute Enum.any?(report.changed, &(&1.id == "ash:v0:Example.Post#resource"))
+      assert report.summary.changed == 1
+    end
+
+    test "the diff is its own inverse for add/remove" do
+      forward = AshAgentTools.diff_manifest(@v1, @v2)
+      reverse = AshAgentTools.diff_manifest(@v2, @v1)
+
+      assert Enum.map(forward.added, & &1.id) == Enum.map(reverse.removed, & &1.id)
+      assert Enum.map(forward.removed, & &1.id) == Enum.map(reverse.added, & &1.id)
+      assert Enum.map(forward.changed, & &1.id) == Enum.map(reverse.changed, & &1.id)
+    end
+
+    test "the report is JSON-encodable" do
+      assert is_binary(Jason.encode!(AshAgentTools.diff_manifest(@v1, @v2)))
+    end
+
+    test "raises on unreadable files" do
+      assert_raise ArgumentError, ~r/cannot read semantic manifest/, fn ->
+        AshAgentTools.diff_manifest(@v1, "test/fixtures/does-not-exist.json")
+      end
+    end
+
+    test "raises on invalid JSON" do
+      path = tmp_file!("{not json")
+
+      try do
+        assert_raise ArgumentError, ~r/not valid JSON/, fn ->
+          AshAgentTools.diff_manifest(@v1, path)
+        end
+      after
+        File.rm(path)
+      end
+    end
+
+    test "raises on documents without a symbols array" do
+      path = tmp_file!(Jason.encode!(%{"manifest_version" => "0"}))
+
+      try do
+        assert_raise ArgumentError, ~r/no "symbols" array/, fn ->
+          AshAgentTools.diff_manifest(@v1, path)
+        end
+      after
+        File.rm(path)
+      end
+    end
+
+    test "raises on symbols without a string id" do
+      path = tmp_file!(Jason.encode!(%{"symbols" => [%{"kind" => "resource"}]}))
+
+      try do
+        assert_raise ArgumentError, ~r/without a string "id"/, fn ->
+          AshAgentTools.diff_manifest(@v1, path)
+        end
+      after
+        File.rm(path)
+      end
+    end
+
+    test "raises on duplicate symbol ids" do
+      symbol = %{"id" => "ash:v0:Example.Post#resource", "kind" => "resource", "name" => "Post"}
+      path = tmp_file!(Jason.encode!(%{"symbols" => [symbol, symbol]}))
+
+      try do
+        assert_raise ArgumentError, ~r/duplicate symbol id/, fn ->
+          AshAgentTools.diff_manifest(@v1, path)
+        end
+      after
+        File.rm(path)
+      end
+    end
+
+    defp tmp_file!(contents) do
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "ash_agent_tools_test_#{System.unique_integer([:positive])}.json"
+        )
+
+      File.write!(path, contents)
+      path
     end
   end
 

@@ -20,6 +20,9 @@ report.valid?          #=> true
 report.normalized_inputs["score"]  #=> 7
 
 AshAgentTools.explain_forbidden(MyApp.Post, :create)
+
+AshAgentTools.semantic_search("tag")   #=> [%{resource: MyApp.Post, kind: :action, name: :by_tag, ...}]
+AshAgentTools.diff_manifest("old.json", "new.json")  #=> %{summary: %{added: 1, ...}, ...}
 ```
 
 Or from the shell, no code execution required:
@@ -29,6 +32,8 @@ mix ash_agent.describe                       # discovery summary
 mix ash_agent.describe MyApp.Post create     # action contract
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}' --out report.json
+mix ash_agent.search tag                     # find symbols by name substring
+mix ash_agent.diff manifest-old.json manifest-new.json
 ```
 
 Both tasks emit **pure JSON on stdout** (application logger noise is
@@ -68,6 +73,16 @@ Keeping the API plain has two more benefits:
 - **Authorization guidance** — `explain_forbidden/2` lists an action's
   policies (bypass flags, conditions, checks) in human-readable form via
   `Ash.Policy.Check.describe/2`, with hints for reasoning about them.
+- **Symbol search** — `semantic_search/2` finds attributes, actions,
+  calculations, and relationships across loaded resources by name substring
+  (case-insensitive, optional kind filter), each hit with its normalized
+  type and Spark source location.
+- **Manifest diffing** — `diff_manifest/2` structurally diffs two
+  semantic-manifest JSON documents by stable symbol id (the
+  `ash:v0:<Module>#<dsl_path>/<name>` grammar proposed in the *Spark/Ash
+  Semantic Manifest, v0* RFC) into added/removed/changed symbol sets.
+  Works on hand-authored fixtures today; the RFC's `--semantic` exporter is
+  future work.
 
 ## Installation
 
@@ -95,6 +110,9 @@ rules land in your `AGENTS.md` automatically.
   and actor-dependent validations surface when an action actually runs.
 - `explain_forbidden/2` is a guidance stub, not an evaluator; use `Ash.can?/3`
   for real verdicts.
+- `diff_manifest/2` operates on manifest documents, not live modules — pair
+  it with an exporter once one exists (the RFC's `mix ash.manifest.dump
+  --semantic` proposal), or hand-authored fixtures.
 
 ## Contributing
 

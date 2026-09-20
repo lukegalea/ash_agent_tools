@@ -15,6 +15,7 @@ path = [
   "mix.lock",
   "README.md",
   "usage-rules.md",
+  "test/fixtures/*.json",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>"
