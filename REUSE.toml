@@ -15,6 +15,7 @@ path = [
   "mix.lock",
   "README.md",
   "usage-rules.md",
+  "usage-rules/*.md",
   "test/fixtures/*.json",
 ]
 precedence = "aggregate"

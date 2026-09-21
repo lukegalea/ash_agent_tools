@@ -5,7 +5,8 @@ agent's questions about a project's domains, resources, and actions as plain
 JSON-encodable maps, validates action inputs without running anything, lists
 the policies that can forbid an action, searches symbol names across
 resources, describes the Ash context at any source file position, diffs
-semantic-manifest documents, and tells you how to use all of that in-VM
+semantic-manifest documents, judges code against the codified 26 iron laws,
+and tells you how to use all of that in-VM
 without a mix boot. It ships as **regular library code plus this file** —
 deliberately *not* as registered MCP tools or any other tool-surface
 integration, which keeps it usable from `project_eval`, Livebook, Mix tasks,
@@ -136,11 +137,16 @@ For agents without code execution:
 - `mix ash_agent.edit OP NAME_PATH [--body ...] [--write --expected-digest D]`
   — semantic DSL edits: `replace`, `insert-before`, `insert-after`,
   `delete`; dry-run by default
+- `mix ash_agent.laws [FILE...] [--code SNIPPET] [-] [--diff] [--min-tier TIER]`
+  — the iron-law judge: violations of the 26 laws as JSON (`--law ID`
+  restricts; `-` reads stdin). No boot at all — pure text processing. With
+  no arguments it prints the law registry.
 
 All tasks run under the **compile-only boot contract** (except
 `ash_agent.runtime`, which is *justified* in a full boot — the running tree
-is the point — and `ash_agent.diff`/`ash_agent.gaps`, which need no
-application at all): `app.config` + compile + the domains configured under
+is the point; `ash_agent.diff`/`ash_agent.laws`/`ash_agent.gaps`, which need
+no application at all — `laws` never even compiles). The contract is
+`app.config` + compile + the domains configured under
 `config :my_app, ash_domains: [...]`. **The application is not started** —
 no Oban queues consuming jobs, no projectors draining, no endpoints. If a
 tool needs the running tree, that is a different tool.
@@ -267,6 +273,36 @@ Truncation is a ladder, not a wall: `semantic_search/2` takes
 `:max_results` (default 100) and refuses over-limit searches with
 per-resource counts; `context/3` takes `:max_list` (default 25) and marks
 capped lists with `*_truncated?` shown/total entries.
+
+## The iron-law judge
+
+`judge_laws/2` (facade for `AshAgentTools.Laws.judge/2`) checks a snippet, a
+file's content, or a unified diff against the codified **26 Iron Laws**
+(adapted from phxagents.dev/iron-laws, MIT — every law is a scar). It is a
+deterministic, grep-tier judge: no LLM, no provider keys, and no boot at
+all — a pure function over the text you hand it. Output is violations-only,
+tiered by pattern certainty (`definite` → `likely` → `review`), with a
+default floor of `likely` so review-tier hints stay in `counts` without
+flooding `violations`.
+
+```elixir
+report = AshAgentTools.judge_laws(source)
+report.violations   # [%{law: "10", name: ..., tier: "definite", line: 3, text: ..., hint: ...}]
+report.counts       # %{definite: 1, likely: 0, review: 2} — every tier, even when filtered
+report.laws_without_detectors  # the behavioral laws (a review checklist, not greps)
+```
+
+`diff?: true` judges only the added (`+`) lines of a unified diff — the
+pre-apply gate for your own edits. `laws:` restricts by id; `:min_tier`
+moves the floor. The full law text ships as the **`usage-rules/iron-laws.md`
+sub-rule**, so `mix usage_rules.sync` distributes the laws themselves as
+agent rules (`ash_agent_tools:iron-laws` section) alongside this file —
+that sub-rule, not this paragraph, is what to consult for what each law
+means.
+
+Read hits honestly: a hit means the *pattern* matched, and the tier is the
+pattern's certainty — judge context (the compile-time-constant
+`String.to_atom` is the documented exception to #10).
 
 ## Integration posture
 

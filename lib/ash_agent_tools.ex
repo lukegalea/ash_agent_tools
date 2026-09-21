@@ -42,6 +42,9 @@ defmodule AshAgentTools do
      (`MyApp.Post/actions/by_tag`, `.../policies/policy[0]`), with spans,
      provenance, and shape digests — the addressing layer for
      `AshAgentTools.Edit`'s semantic edit operations
+   * `judge_laws/2` — the deterministic iron-law judge: violations of the
+     codified "26 Iron Laws" in a snippet, file, or unified diff, tiered
+     definite → likely → review, violations-only output
    * `eval_docs/0` — the exact snippets for using this API in-VM, without a
      mix boot, when your session is already attached to a running node
 
@@ -61,6 +64,7 @@ defmodule AshAgentTools do
   $ mix ash_agent.context lib/my_app/accounts/post.ex:42
   $ mix ash_agent.runtime snapshot   # also: top 20 | tree MyApp
   $ mix ash_agent.gaps               # the kaizen tool-gap digest
+  $ mix ash_agent.laws lib/foo.ex    # the iron-law judge (also: --code, --diff)
   ```
 
   See `usage-rules.md` at the package root for agent-oriented guidance.
@@ -332,6 +336,34 @@ defmodule AshAgentTools do
   def resolve(name_path, opts \\ []), do: AshAgentTools.NamePath.resolve(name_path, opts)
 
   @doc """
+  Judges `source` against the codified "26 Iron Laws" and returns the
+  violation report.
+
+  A deterministic judge — grep-tier patterns at three certainty tiers
+  (`:definite`, `:likely`, `:review`) — over the text you hand it: a
+  snippet, a file's content, or a unified diff (`diff?: true` judges only
+  added lines). Nothing executes and no project modules are needed, so it
+  works on any text without a boot. See `AshAgentTools.Laws.judge/2` for
+  the options (`:min_tier` defaults to `:likely`, `:laws` restricts by id,
+  `:file` labels the source) and `AshAgentTools.Laws.laws/0` for the
+  registry; the agent-consumable law text ships as the
+  `usage-rules/iron-laws.md` sub-rule.
+
+  ## Examples
+
+      iex> report = AshAgentTools.judge_laws("attrs = %{email: String.to_atom(email)}")
+      iex> {report.clean?, hd(report.violations).law}
+      {false, "10"}
+
+      iex> report = AshAgentTools.judge_laws("title = String.upcase(name)")
+      iex> {report.clean?, report.violations}
+      {true, []}
+
+  """
+  @spec judge_laws(String.t(), keyword()) :: map()
+  def judge_laws(source, opts \\ []), do: AshAgentTools.Laws.judge(source, opts)
+
+  @doc """
   Returns the snippet an agent should evaluate to use this API in-VM.
 
   Per-query `mix` boots cost seconds to minutes (cold compile, dependency
@@ -381,6 +413,7 @@ defmodule AshAgentTools do
         AshAgentTools.explain_trace(spans)                    # trace reduction: errors, queries (N+1 flagged), policies, budget-bounded
         AshAgentTools.resolve("MyApp.Post/actions/by_tag")    # name-path resolution: symbol, span, provenance, shape digest
                                                               # (edits: AshAgentTools.Edit.replace_entity_block/3 et al. — dry-run by default)
+        AshAgentTools.judge_laws(source)                      # iron-law judge: violations vs the 26 laws, tiered definite/likely/review
 
     Runtime state (the other half of debugging — pair with a trace via
     trace_id): `AshAgentTools.Runtime.snapshot()`, `AshAgentTools.Runtime.top(20)`,

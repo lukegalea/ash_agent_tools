@@ -54,6 +54,7 @@ mix ash_agent.context lib/my_app/accounts/post.ex:42  # what lives at this posit
 mix ash_agent.diff manifest-old.json manifest-new.json
 mix ash_agent.runtime snapshot               # also: top 20 | tree MyApp
 mix ash_agent.gaps                           # the kaizen tool-gap digest
+mix ash_agent.laws lib/foo_live.ex           # the iron-law judge (also: --code, --diff, stdin)
 mix ash_agent.edit replace MyApp.Post/attributes/score \
   --body "attribute :score, :integer, allow_nil?: false"   # dry-run; add --write --expected-digest D to apply
 ```
@@ -147,6 +148,14 @@ Keeping the API plain has two more benefits:
   outputs use Serena-style truncation ladders (over-limit refinement
   errors, capped lists with shown/total markers).
 
+- **Iron-law judge** — `judge_laws/2` (and `mix ash_agent.laws`) checks a
+  snippet, file, or unified diff against the codified *26 Iron Laws*
+  (adapted from [phxagents.dev/iron-laws](https://phxagents.dev/iron-laws),
+  MIT) with deterministic grep-tier detectors — no LLM, no keys, no boot.
+  Violations-only output at three certainty tiers (`definite`, `likely`,
+  `review`) with counts for every tier; the law text ships as the
+  `usage-rules/iron-laws.md` sub-rule for `mix usage_rules.sync`.
+
 ## Compile-only boot
 
 The introspection tasks (`describe`, `validate`, `search`, `context`,
@@ -154,7 +163,7 @@ The introspection tasks (`describe`, `validate`, `search`, `context`,
 started**: no Oban queues consuming jobs mid-task, no projectors draining,
 no side effects. Introspection needs compiled DSL state, not a running
 app. Only `runtime` boots the application (the running tree is the point),
-and `diff`/`gaps` need nothing at all.
+and `diff`/`laws`/`gaps` need nothing at all — `laws` never even compiles.
 
 ## Installation
 

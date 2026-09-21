@@ -93,14 +93,14 @@ defmodule AshAgentTools.MixProject do
         "GitHub" => "https://github.com/lukegalea/ash_agent_tools",
         "Usage rules" => "https://github.com/lukegalea/ash_agent_tools/blob/main/usage-rules.md"
       },
-      files: ~w(lib mix.exs README.md LICENSE LICENSES usage-rules.md .formatter.exs)
+      files: ~w(lib mix.exs README.md LICENSE LICENSES usage-rules.md usage-rules .formatter.exs)
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "usage-rules.md"]
+      extras: ["README.md", "usage-rules.md", "usage-rules/iron-laws.md"]
     ]
   end
 end
