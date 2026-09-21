@@ -141,11 +141,16 @@ For agents without code execution:
   — the iron-law judge: violations of the 26 laws as JSON (`--law ID`
   restricts; `-` reads stdin). No boot at all — pure text processing. With
   no arguments it prints the law registry.
+- `mix ash_agent.serve [--port N] [--no-watch]` — the supervised MCP
+  daemon (see the next section). Same compile-only boot contract as the
+  other introspection tasks; the application is never started.
 
 All tasks run under the **compile-only boot contract** (except
 `ash_agent.runtime`, which is *justified* in a full boot — the running tree
 is the point; `ash_agent.diff`/`ash_agent.laws`/`ash_agent.gaps`, which need
-no application at all — `laws` never even compiles). The contract is
+no application at all — `laws` never even compiles; and `ash_agent.serve`,
+which keeps the contract but holds the compiled context long-lived instead
+of exiting). The contract is
 `app.config` + compile + the domains configured under
 `config :my_app, ash_domains: [...]`. **The application is not started** —
 no Oban queues consuming jobs, no projectors draining, no endpoints. If a
@@ -160,6 +165,44 @@ actions carry `did_you_mean`). Cold starts may still print dependency
 compilation before the task body runs, so compile before parsing if that
 matters. Flags: `--out FILE` writes the JSON to a file instead of stdout;
 `--verbose` restores the logs (breaking pure-JSON stdout).
+
+## The MCP daemon (`mix ash_agent.serve`)
+
+`mix ash_agent.serve` starts a supervised daemon in this VM: a loopback
+HTTP MCP server (`127.0.0.1:4100` by default, POST-only JSON-RPC,
+stateless — no sessions, no SSE) plus a file watcher on `lib/` and
+`config/`. Point an MCP client at it with a `"type": "http"` entry:
+
+```json
+{ "ash-agent": { "type": "http", "url": "http://127.0.0.1:4100" } }
+```
+
+- **Tools:** `ash_describe` (no args → discovery summary), `ash_validate`,
+  `ash_search`, `ash_context`, `ash_forbidden`, `ash_daemon_status`,
+  `ash_reload`. All read-only — same contract as the facade. There is no
+  edit tool on the daemon: write paths stay in `mix ash_agent.edit` and
+  your edit tools.
+- **Boot contract holds:** the daemon compiles the project and loads the
+  configured domains but never starts the application. The mix boot is
+  paid once at daemon start; every tool call is an in-memory read served
+  through a checksum-keyed describe cache.
+- **Hot reload:** file events trigger a recompile + cache invalidation,
+  serialized behind the runtime process so a reload can never race a tool
+  call. `ash_reload` is the manual backstop (git stash edge cases, watcher
+  misses). Every reload emits `[:ash_agent, :daemon, :reloaded]` telemetry.
+- **Loopback only:** the daemon is a dev tool with no auth — do not expose
+  the port. Origin headers are validated (DNS-rebinding defense) and
+  `MCP-Protocol-Version` is negotiated down to the client (`2024-11-05`
+  accepted).
+- **Optional deps:** `plug` and `bandit` (HTTP surface) and `file_system`
+  (watcher) are optional — Phoenix apps ship all three. Without them the
+  daemon refuses to boot (with an install hint) or starts without hot
+  reload, respectively.
+- Prefer the daemon over per-query `mix ash_agent.*` tasks when you are
+  making **many** introspection calls in one session: the boot is paid
+  once instead of per call. Single-question sessions are fine with the
+  tasks. Prefer in-VM calls (above) when you are already attached to a
+  running node.
 
 ## Output conventions
 

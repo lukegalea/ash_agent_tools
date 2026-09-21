@@ -242,6 +242,12 @@ defmodule AshAgentTools.Kaizen do
   end
 
   defp ensure_handler! do
+    # Under the compile-only boot contract (`mix ash_agent.*` tasks, the
+    # serve daemon) the host application is not started — and neither is
+    # the `:telemetry` application that owns the handler table. Starting it
+    # here is a no-op when it already runs and keeps `attach/0` usable in
+    # every VM this package's tooling boots.
+    {:ok, _} = Application.ensure_all_started(:telemetry)
     :telemetry.attach(@handler_id, @event_name, &__MODULE__.handle_event/4, nil)
     :ok
   end

@@ -80,6 +80,17 @@ defmodule AshAgentTools.MixProject do
       {:observer_cli, "~> 2.0", only: :dev, optional: true},
       {:recon, "2.5.6", only: :dev, optional: true},
 
+      # Optional MCP-over-HTTP daemon (`mix ash_agent.serve`). All three are
+      # `optional:` so hosts pay nothing unless they serve the daemon, and the
+      # package keeps its MIT/no-hard-dep story. The serve task and supervisor
+      # gate every use behind `Code.ensure_loaded?/1` with a pointed error
+      # message when a piece is missing; `AshAgentTools.Mcp.Plug` is compiled
+      # conditionally (Ecto's optional-Jason pattern) so a host without Plug
+      # still compiles this package cleanly.
+      {:plug, "~> 1.16", optional: true},
+      {:bandit, "~> 1.5", optional: true},
+      {:file_system, "~> 1.1", optional: true},
+
       # Dev hygiene: static analysis and type checking.
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

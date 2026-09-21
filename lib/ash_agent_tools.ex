@@ -15,14 +15,16 @@ defmodule AshAgentTools do
   * **Read-only.** Every function is a pure function over already-loaded Ash
     modules. Nothing is written, executed, or committed: `validate_input/3`
     builds (and inspects) a changeset/query/action input but never runs it.
-  * **No tool registration.** This package deliberately does *not* register
-    MCP tools or any other editor/agent-side tool surface. The accepted
-    pattern for agent-facing libraries is to ship plain, introspectable code
-    plus `usage-rules.md`, and let agents compose it themselves (via
-    `project_eval`, Livebook, or the bundled `mix ash_agent.*` tasks).
-  * **Forward-compatible.** The API is plain data in, plain maps out. If a
-    hosted tool-definition API settles upstream (e.g. Tidewave's exploration
-    in PR #215), each function maps 1:1 onto a tool with a JSON input schema.
+  * **No registration required.** Nothing here hooks into your application
+    or a framework: the accepted pattern for agent-facing libraries is to
+    ship plain, introspectable code plus `usage-rules.md`, and let agents
+    compose the surface themselves (via `project_eval`, Livebook, the
+    bundled `mix ash_agent.*` tasks — or, opt-in, the supervised MCP daemon
+    from `mix ash_agent.serve`, which maps these functions 1:1 onto MCP
+    tools on loopback).
+  * **Forward-compatible.** The API is plain data in, plain maps out. Each
+    function maps 1:1 onto a tool with a JSON input schema (see
+    `AshAgentTools.Mcp.Tools` for those cards).
 
   ## Primary API
 

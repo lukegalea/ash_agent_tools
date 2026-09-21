@@ -1,0 +1,112 @@
+{
+  "_meta": {
+    "name": "dx2-serve-daemon-trigger-eval",
+    "version": 1,
+    "description": "Pre-launch trigger-eval gate for the `mix ash_agent.serve` MCP daemon (DX-2 design §2.4). Each query is run against the daemon's tool descriptions by a real client; the query passes when the client triggers (or declines to trigger) exactly as `should_trigger` prescribes. Gate: 75% per-tool. Failures are labeled with the phxagents taxonomy: `missing_term` (the phrasing never matches), `too_broad` (triggered where it should not have), `neighbor_collision` (the right intent, wrong tool — e.g. answered by tidewave's project_eval or the shell instead).",
+    "gate": "0.75 per tool, pre-merge",
+    "mechanics": "See README.md in this directory. Not wired into CI by design: run before merge with the daemon on a scratch port.",
+    "labels": ["missing_term", "too_broad", "neighbor_collision"]
+  },
+  "queries": [
+    {
+      "query": "what fields does MyApp.Post have?",
+      "should_trigger": true,
+      "expected_tool": "ash_describe"
+    },
+    {
+      "query": "what does the create action on MyApp.Post accept?",
+      "should_trigger": true,
+      "expected_tool": "ash_describe"
+    },
+    {
+      "query": "list the Ash resources in this project",
+      "should_trigger": true,
+      "expected_tool": "ash_describe"
+    },
+    {
+      "query": "which domains are configured in this app?",
+      "should_trigger": true,
+      "expected_tool": "ash_describe"
+    },
+    {
+      "query": "what arguments does the by_tag read action take?",
+      "should_trigger": true,
+      "expected_tool": "ash_describe"
+    },
+    {
+      "query": "is %{title: 42} valid input for Post create?",
+      "should_trigger": true,
+      "expected_tool": "ash_validate"
+    },
+    {
+      "query": "validate these params against the publish action before I run it",
+      "should_trigger": true,
+      "expected_tool": "ash_validate"
+    },
+    {
+      "query": "will this changeset fail? check without executing anything",
+      "should_trigger": true,
+      "expected_tool": "ash_validate"
+    },
+    {
+      "query": "which resource has an attribute named score?",
+      "should_trigger": true,
+      "expected_tool": "ash_search"
+    },
+    {
+      "query": "find all actions related to tagging across resources",
+      "should_trigger": true,
+      "expected_tool": "ash_search"
+    },
+    {
+      "query": "what Ash code lives at lib/my_app/accounts/post.ex line 42?",
+      "should_trigger": true,
+      "expected_tool": "ash_context"
+    },
+    {
+      "query": "why might this create action be forbidden for a regular user?",
+      "should_trigger": true,
+      "expected_tool": "ash_forbidden"
+    },
+    {
+      "query": "show me the authorization policies on MyApp.Post",
+      "should_trigger": true,
+      "expected_tool": "ash_forbidden"
+    },
+    {
+      "query": "did my last edit to lib/ get picked up? what does the daemon see?",
+      "should_trigger": true,
+      "expected_tool": "ash_daemon_status"
+    },
+    {
+      "query": "refresh the daemon's compiled view of the project",
+      "should_trigger": true,
+      "expected_tool": "ash_reload"
+    },
+    {
+      "query": "run this SQL query against the posts table",
+      "should_trigger": false,
+      "neighbor": "tidewave project_eval / SQL tools — the daemon is read-only introspection and must not absorb execution requests"
+    },
+    {
+      "query": "create a new post titled Hello",
+      "should_trigger": false,
+      "neighbor": "execution via the project's own code interface (project_eval) — never the introspection daemon"
+    },
+    {
+      "query": "rename the title attribute to name everywhere",
+      "should_trigger": false,
+      "neighbor": "file edit tools / mix ash_agent.edit — the daemon excludes write paths by design"
+    },
+    {
+      "query": "which Phoenix routes exist?",
+      "should_trigger": false,
+      "neighbor": "grep / mix phx.routes — router introspection is not Ash surface"
+    },
+    {
+      "query": "what does the current git diff look like?",
+      "should_trigger": false,
+      "neighbor": "shell — version-control tooling is not Ash introspection"
+    }
+  ]
+}

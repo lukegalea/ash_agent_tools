@@ -156,6 +156,18 @@ Keeping the API plain has two more benefits:
   `review`) with counts for every tier; the law text ships as the
   `usage-rules/iron-laws.md` sub-rule for `mix usage_rules.sync`.
 
+- **MCP daemon** — `mix ash_agent.serve` starts a supervised, loopback-only
+  MCP server (POST-only JSON-RPC over HTTP on `127.0.0.1:4100`, stateless,
+  no sessions, no SSE) that exposes the facade as tools: `ash_describe`,
+  `ash_validate`, `ash_search`, `ash_context`, `ash_forbidden`,
+  `ash_daemon_status`, and `ash_reload`. Same compile-only boot contract as
+  the tasks — the mix boot is paid once at daemon start, every tool call is
+  an in-memory read — plus a debounced `lib/`/`config/` file watcher that
+  recompiles and invalidates caches behind a serialized reload mutex. Add a
+  `"type": "http"` entry pointing at `http://127.0.0.1:4100` to your MCP
+  client config. `plug`/`bandit`/`file_system` are optional deps (Phoenix
+  apps already have all three).
+
 ## Compile-only boot
 
 The introspection tasks (`describe`, `validate`, `search`, `context`,
@@ -164,6 +176,11 @@ started**: no Oban queues consuming jobs mid-task, no projectors draining,
 no side effects. Introspection needs compiled DSL state, not a running
 app. Only `runtime` boots the application (the running tree is the point),
 and `diff`/`laws`/`gaps` need nothing at all — `laws` never even compiles.
+
+`serve` follows the same contract: the daemon compiles your project and
+loads the configured domains, then serves reads from memory. The
+application is never started inside the daemon; your running app (if any)
+is a separate node.
 
 ## Installation
 
