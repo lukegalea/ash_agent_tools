@@ -40,11 +40,15 @@ decision instead.
 2. Drive the eval set with any MCP-speaking client harness. The minimal
    loop per query: `tools/list` once, then for each query ask the client
    model to pick a tool from the cards and record
-   `{query, picked_tool, should_trigger, pass?}`. The repo's skill_eval
-   machinery (`skill_eval` with `evalSetPath` pointed at `eval_set.json`,
-   `skillPath` at the package root) does this out of the box against the
-   packaged usage rules + tool cards; a standalone harness only needs to
-   replay the same two-request shape:
+   `{query, picked_tool, should_trigger, pass?}`. The bundled runner does
+   this end-to-end (handshake → cards → `opencode run` as the judge client
+   → per-tool scores + labeled failures):
+
+   ```sh
+   eval/trigger_eval/run_gate.sh --port 4199 --out results.md
+   ```
+
+   A standalone harness only needs to replay the same two-request shape:
 
    ```sh
    curl -s -X POST http://127.0.0.1:4199 \

@@ -56,8 +56,9 @@ defmodule AshAgentTools.Mcp.Tools do
       card(
         "ash_describe",
         "Describe Ash resources and actions: fields, relationships, actions, " <>
-          "input contracts, types, source locations. With no arguments, returns " <>
-          "the discovery summary (loaded domains and resources). Read-only.",
+          "the arguments and input contract each action accepts, types, and " <>
+          "source locations. With no arguments, returns the discovery summary " <>
+          "(loaded domains and resources). Read-only.",
         %{
           "resource" => %{
             type: "string",
