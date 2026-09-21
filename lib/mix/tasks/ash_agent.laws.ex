@@ -134,8 +134,11 @@ defmodule Mix.Tasks.AshAgent.Laws do
 
   defp read_source!(path) do
     case File.read(path) do
-      {:ok, content} -> content
-      {:error, reason} -> raise ArgumentError, "cannot read #{path}: #{:file.format_error(reason)}"
+      {:ok, content} ->
+        content
+
+      {:error, reason} ->
+        raise ArgumentError, "cannot read #{path}: #{:file.format_error(reason)}"
     end
   end
 
@@ -167,7 +170,7 @@ defmodule Mix.Tasks.AshAgent.Laws do
 
     counts =
       Map.new(tiers, fn tier ->
-        {tier, Enum.sum(Enum.map(reports, &get_in(&1, [:counts, tier]) || 0))}
+        {tier, Enum.sum(Enum.map(reports, &(get_in(&1, [:counts, tier]) || 0)))}
       end)
 
     %{sources: reports, counts: counts, clean?: Enum.all?(reports, & &1.clean?)}

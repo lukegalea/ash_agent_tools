@@ -356,7 +356,9 @@ defmodule AshAgentTools.LawsTest do
 
     test "clean source reports clean? with zero counts" do
       report = Laws.judge("def ok, do: :ok", min_tier: :review)
-      assert %{violations: [], counts: %{definite: 0, likely: 0, review: 0}, clean?: true} = report
+
+      assert %{violations: [], counts: %{definite: 0, likely: 0, review: 0}, clean?: true} =
+               report
     end
 
     test "the report is JSON-encodable" do

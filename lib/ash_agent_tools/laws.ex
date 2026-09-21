@@ -204,8 +204,7 @@ defmodule AshAgentTools.Laws do
       name: "no-float-money",
       category: :ecto,
       title: "Never use :float for money",
-      summary:
-        "Floats round; money must not. Use :decimal (or :money) for any currency amount.",
+      summary: "Floats round; money must not. Use :decimal (or :money) for any currency amount.",
       detectors: [
         %{
           kind: :line,
@@ -258,8 +257,7 @@ defmodule AshAgentTools.Laws do
       name: "no-implicit-cross-joins",
       category: :ecto,
       title: "No implicit cross joins",
-      summary:
-        "A join without on: is a cartesian product. Every join: needs an explicit on:.",
+      summary: "A join without on: is a cartesian product. Every join: needs an explicit on:.",
       detectors: [
         %{
           kind: :line,
@@ -434,7 +432,8 @@ defmodule AshAgentTools.Laws do
         %{
           kind: :mount,
           tier: :likely,
-          pattern: ~r/(Agent\.start(_link)?|GenServer\.start(_link)?|Task\.start(_link)?|start_supervised)/,
+          pattern:
+            ~r/(Agent\.start(_link)?|GenServer\.start(_link)?|Task\.start(_link)?|start_supervised)/,
           hint:
             "a process started in mount dies with the render and duplicates per visitor — " <>
               "processes need a runtime reason (a supervised singleton), not a page view"
@@ -631,7 +630,8 @@ defmodule AshAgentTools.Laws do
       |> Enum.filter(&(tier_rank(&1.tier) <= tier_rank(min_tier)))
       |> Enum.sort_by(&{&1.line, tier_rank(&1.tier), &1.law})
 
-    counts = Map.new(@tiers, fn tier -> {tier, Enum.count(raw_violations, &(&1.tier == tier))} end)
+    counts =
+      Map.new(@tiers, fn tier -> {tier, Enum.count(raw_violations, &(&1.tier == tier))} end)
 
     %{
       source: Keyword.get(opts, :file, "inline"),
