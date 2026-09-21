@@ -53,6 +53,12 @@ defmodule AshAgentTools.Test.Post do
     calculate :title_length, :integer, expr(string_length(title))
   end
 
+  aggregates do
+    count :comment_count, :comments do
+      public? true
+    end
+  end
+
   actions do
     defaults [:read, :destroy]
 
@@ -69,6 +75,22 @@ defmodule AshAgentTools.Test.Post do
       argument :tag, :string, allow_nil?: false
 
       filter expr(^arg(:tag) in tags)
+    end
+
+    action :rate, :string do
+      argument :verdict, :atom do
+        constraints one_of: [:hot, :not]
+        allow_nil? false
+      end
+
+      argument :stars, :integer do
+        constraints min: 1, max: 5
+        default 3
+      end
+
+      run fn _input, _context ->
+        {:ok, "rated"}
+      end
     end
 
     action :feature, :string do

@@ -10,7 +10,7 @@ defmodule AshAgentToolsTest do
   doctest AshAgentTools.Search
   doctest AshAgentTools.Types
 
-  alias AshAgentTools.Test.{Author, Comment, Domain, Guarded, Post}
+  alias AshAgentTools.Test.{Author, Comment, Domain, Guarded, InterfaceDomain, Post}
 
   describe "discovery" do
     test "list_domains/0 finds the test domain" do
@@ -71,6 +71,38 @@ defmodule AshAgentToolsTest do
       assert comments.type == :has_many
       assert comments.destination == Comment
       assert comments.destination_attribute == :post_id
+    end
+
+    test "describes aggregates with kind and type" do
+      aggregates =
+        Post
+        |> AshAgentTools.describe_resource()
+        |> Map.fetch!(:aggregates)
+        |> Map.new(&{&1.name, &1})
+
+      comment_count = Map.fetch!(aggregates, :comment_count)
+      assert comment_count.kind == :count
+      # count aggregates have a DSL-fixed return type
+      assert comment_count.type == "integer"
+      assert comment_count.relationship_path == [:comments]
+      assert comment_count.public? == true
+      assert comment_count.source
+      assert comment_count.source.file =~ "post.ex"
+    end
+
+    test "describes calculations with types and constraints" do
+      calculations =
+        Post
+        |> AshAgentTools.describe_resource()
+        |> Map.fetch!(:calculations)
+        |> Map.new(&{&1.name, &1})
+
+      title_length = Map.fetch!(calculations, :title_length)
+      assert title_length.type == "integer"
+      assert title_length.constraints == %{}
+      assert title_length.arguments == []
+      assert title_length.source
+      assert title_length.source.file =~ "post.ex"
     end
 
     test "describes actions with names, types, accept lists, and argument types" do
@@ -147,6 +179,31 @@ defmodule AshAgentToolsTest do
       assert [%{name: :tag, required?: true}] = by_tag.arguments
     end
 
+    test "reports constraints on action arguments" do
+      arguments =
+        Post
+        |> AshAgentTools.describe_action(:rate)
+        |> Map.fetch!(:arguments)
+        |> Map.new(&{&1.name, &1})
+
+      verdict = Map.fetch!(arguments, :verdict)
+      assert verdict.type == "atom"
+      assert verdict.constraints.one_of == ["hot", "not"]
+
+      stars = Map.fetch!(arguments, :stars)
+      assert stars.type == "integer"
+      assert stars.constraints == %{max: 5, min: 1}
+    end
+
+    test "carries argument constraints into the input contract" do
+      input = AshAgentTools.describe_action(Post, :rate) |> Map.fetch!(:input)
+
+      assert :verdict in input.required
+
+      optional = Map.new(input.optional, &{&1.name, &1})
+      assert Map.fetch!(optional, :stars).constraints == %{max: 5, min: 1}
+    end
+
     test "reports return shapes" do
       assert %{kind: :record, type: Post} = AshAgentTools.describe_action(Post, :create).returns
       assert %{kind: :list, type: Post} = AshAgentTools.describe_action(Post, :read).returns
@@ -163,6 +220,18 @@ defmodule AshAgentToolsTest do
       assert Enum.any?(interfaces, fn interface ->
                interface.name == :feature and interface.domain == Domain and
                  interface.args == [:level]
+             end)
+    end
+
+    test "reports domain-level defines (reference.definitions)" do
+      # `:domain_feature` is a `define` inside InterfaceDomain's resources
+      # block targeting action `:feature` — Ash 3.33 stores it on the
+      # domain's resource reference under `definitions`, not `define`.
+      interfaces = AshAgentTools.describe_action(Post, :feature) |> Map.fetch!(:code_interfaces)
+
+      assert Enum.any?(interfaces, fn interface ->
+               interface.name == :domain_feature and interface.domain == InterfaceDomain and
+                 interface.on_resource? == false
              end)
     end
 
@@ -184,6 +253,20 @@ defmodule AshAgentToolsTest do
   end
 
   describe "validate_input/3" do
+    test "expected block carries constraints for arguments" do
+      report = AshAgentTools.validate_input(Post, :rate, %{"verdict" => "hot"})
+
+      assert report.valid? == true
+
+      # required arguments ride in `arguments` (the `required` list is names
+      # only), optional ones in `optional`
+      arguments = Map.new(report.expected.arguments, &{&1.name, &1})
+      assert Map.fetch!(arguments, :verdict).constraints.one_of == ["hot", "not"]
+
+      optional = Map.new(report.expected.optional, &{&1.name, &1})
+      assert Map.fetch!(optional, :stars).constraints == %{max: 5, min: 1}
+    end
+
     test "casts and normalizes valid input without running anything" do
       report =
         AshAgentTools.validate_input(Post, :create, %{

@@ -36,6 +36,8 @@ defmodule AshAgentTools.Describe do
       multitenancy: multitenancy(resource),
       source: Source.from_module(resource),
       fields: fields(resource),
+      aggregates: aggregates(resource),
+      calculations: calculations(resource),
       relationships: relationships(resource),
       actions: actions(resource)
     }
@@ -158,6 +160,53 @@ defmodule AshAgentTools.Describe do
     end)
   end
 
+  # Aggregates and calculations are derived fields: an agent composing a
+  # query or validating output needs their types (and constraints, where the
+  # DSL declares them) exactly as it does for stored attributes.
+  defp aggregates(resource) do
+    Enum.map(Ash.Resource.Info.aggregates(resource), fn aggregate ->
+      %{
+        name: aggregate.name,
+        kind: aggregate.kind,
+        type: aggregate_type(aggregate),
+        field: Map.get(aggregate, :field),
+        relationship_path: aggregate.relationship_path,
+        constraints: constraints(Map.get(aggregate, :constraints) || %{}),
+        public?: Map.get(aggregate, :public?, false),
+        description: Map.get(aggregate, :description),
+        source: Source.from_entity(aggregate)
+      }
+    end)
+  end
+
+  # Count and exists aggregates have DSL-fixed return types; the field-based
+  # kinds (first/list/sum/...) resolve their type from the related field,
+  # which is not worth the cross-resource lookup here.
+  defp aggregate_type(aggregate) do
+    case Map.get(aggregate, :type) do
+      nil -> default_aggregate_type(Map.get(aggregate, :kind))
+      type -> Types.normalize(type)
+    end
+  end
+
+  defp default_aggregate_type(:count), do: Types.normalize(:integer)
+  defp default_aggregate_type(:exists), do: Types.normalize(:boolean)
+  defp default_aggregate_type(_), do: nil
+
+  defp calculations(resource) do
+    Enum.map(Ash.Resource.Info.calculations(resource), fn calculation ->
+      %{
+        name: calculation.name,
+        type: Types.normalize(calculation.type),
+        constraints: constraints(calculation.constraints || %{}),
+        arguments: Enum.map(calculation.arguments, &argument_info/1),
+        public?: Map.get(calculation, :public?, false),
+        description: Map.get(calculation, :description),
+        source: Source.from_entity(calculation)
+      }
+    end)
+  end
+
   defp actions(resource) do
     Enum.map(Ash.Resource.Info.actions(resource), fn action ->
       %{
@@ -185,6 +234,7 @@ defmodule AshAgentTools.Describe do
     %{
       name: argument.name,
       type: Types.normalize(argument.type),
+      constraints: constraints(argument.constraints || %{}),
       required?: argument.allow_nil? == false and is_nil(argument.default),
       allow_nil?: argument.allow_nil?,
       default: default_value(argument.default),
@@ -213,11 +263,19 @@ defmodule AshAgentTools.Describe do
 
     %{
       required: required_names,
+      # Full argument entries (types + constraints), so required arguments'
+      # constraints are visible in validate's `expected` block too — the
+      # plain `required` name list cannot carry them.
+      arguments: Enum.map(arguments, &argument_info/1),
       optional:
         for(
           entry <- arguments ++ attributes,
           entry.name not in required_names,
-          do: %{name: entry.name, type: Types.normalize(entry.type)}
+          do: %{
+            name: entry.name,
+            type: Types.normalize(entry.type),
+            constraints: constraints(Map.get(entry, :constraints) || %{})
+          }
         ),
       private:
         for(
@@ -285,8 +343,8 @@ defmodule AshAgentTools.Describe do
       for domain <- Registry.domains_for_resource(resource),
           reference <- Ash.Domain.Info.resource_references(domain),
           reference.resource == resource,
-          interface <- Map.get(reference, :define, []),
-          interface.action == action.name or interface.name == action.name do
+          interface <- reference_definitions(reference),
+          Map.get(interface, :action) == action.name or interface.name == action.name do
         %{
           name: interface.name,
           domain: domain,
@@ -298,6 +356,16 @@ defmodule AshAgentTools.Describe do
       end
 
     Enum.uniq_by(resource_interfaces ++ domain_interfaces, &{&1.name, &1.domain})
+  end
+
+  # Domain-level `define`/`define_calculation` entries live on the resource
+  # reference. Ash 3.33 stores them under `definitions`; older versions used
+  # `define`. Prefer the current shape, fall back for old Ash.
+  defp reference_definitions(reference) do
+    case Map.fetch(reference, :definitions) do
+      {:ok, definitions} -> definitions
+      :error -> Map.get(reference, :define, [])
+    end
   end
 
   # -- shared helpers ---------------------------------------------------
