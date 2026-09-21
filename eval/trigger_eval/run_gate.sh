@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 #
-# Trigger-eval gate runner (DX-2 §2.4). Drives the eval_set.json queries
+# Trigger-eval gate runner. Drives the eval_set.json queries
 # against a RUNNING `mix ash_agent.serve` daemon: fetches the real
 # `tools/list` cards, then asks a real client model (`opencode run`) which
 # tool — if any — it would call for each query. Scores per the gate rules

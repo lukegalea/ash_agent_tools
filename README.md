@@ -231,7 +231,7 @@ rules land in your `AGENTS.md` automatically.
 ## Contributing
 
 Conventional Commits; MIT licensed with REUSE/SPDX headers on every source
-file (`reuse lint` clean).
+file (`reuse lint` clean; `eval/` fixtures are annotated via `REUSE.toml`).
 
 ## License
 

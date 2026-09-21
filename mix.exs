@@ -102,7 +102,7 @@ defmodule AshAgentTools.MixProject do
       licenses: ["MIT"],
       links: %{
         "GitHub" => "https://github.com/lukegalea/ash_agent_tools",
-        "Usage rules" => "https://github.com/lukegalea/ash_agent_tools/blob/main/usage-rules.md"
+        "Usage rules" => "https://github.com/lukegalea/ash_agent_tools/blob/HEAD/usage-rules.md"
       },
       files: ~w(lib mix.exs README.md LICENSE LICENSES usage-rules.md usage-rules .formatter.exs)
     ]

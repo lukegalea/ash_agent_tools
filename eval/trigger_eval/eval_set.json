@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "name": "dx2-serve-daemon-trigger-eval",
+    "name": "serve-daemon-trigger-eval",
     "version": 1,
-    "description": "Pre-launch trigger-eval gate for the `mix ash_agent.serve` MCP daemon (DX-2 design §2.4). Each query is run against the daemon's tool descriptions by a real client; the query passes when the client triggers (or declines to trigger) exactly as `should_trigger` prescribes. Gate: 75% per-tool. Failures are labeled with the phxagents taxonomy: `missing_term` (the phrasing never matches), `too_broad` (triggered where it should not have), `neighbor_collision` (the right intent, wrong tool — e.g. answered by tidewave's project_eval or the shell instead).",
+    "description": "Pre-launch trigger-eval gate for the `mix ash_agent.serve` MCP daemon. Each query is run against the daemon's tool descriptions by a real client; the query passes when the client triggers (or declines to trigger) exactly as `should_trigger` prescribes. Gate: 75% per-tool. Failures are labeled with the phxagents taxonomy: `missing_term` (the phrasing never matches), `too_broad` (triggered where it should not have), `neighbor_collision` (the right intent, wrong tool — e.g. answered by tidewave's project_eval or the shell instead).",
     "gate": "0.75 per tool, pre-merge",
     "mechanics": "See README.md in this directory. Not wired into CI by design: run before merge with the daemon on a scratch port.",
     "labels": ["missing_term", "too_broad", "neighbor_collision"]

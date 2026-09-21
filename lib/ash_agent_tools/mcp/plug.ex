@@ -13,8 +13,9 @@ if Code.ensure_loaded?(Plug.Conn) do
 
     A POST-only JSON-RPC 2.0 endpoint (MCP "Streamable HTTP" transport,
     stateless profile — no `Mcp-Session-Id`, no SSE, no server-initiated
-    messages; the spec permits both omissions). Protocol behavior follows
-    the DX-2 design and its librarian reconciliation:
+    messages; the spec permits both omissions). Protocol behavior is
+    written against the MCP specification and cross-checked against
+    existing MCP server implementations:
 
       * `initialize` — negotiates the protocol version down to the client's
         request (`2024-11-05` accepted, per the repo's own

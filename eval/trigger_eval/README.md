@@ -1,4 +1,7 @@
-# Trigger-eval gate for `mix ash_agent.serve` (DX-2 §2.4)
+<!-- SPDX-FileCopyrightText: 2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools> -->
+<!-- SPDX-License-Identifier: MIT -->
+
+# Trigger-eval gate for `mix ash_agent.serve`
 
 This directory is the **pre-launch gate scaffold** for the MCP daemon's tool
 surface: `eval_set.json` holds the should-trigger and should-not-neighbor

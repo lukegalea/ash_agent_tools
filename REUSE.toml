@@ -16,6 +16,7 @@ path = [
   "README.md",
   "usage-rules.md",
   "usage-rules/*.md",
+  "eval/trigger_eval/eval_set.json",
   "test/fixtures/*.json",
 ]
 precedence = "aggregate"
