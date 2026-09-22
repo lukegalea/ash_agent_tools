@@ -93,7 +93,11 @@ defmodule AshAgentTools.MixProject do
 
       # Dev hygiene: static analysis and type checking.
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+
+      # Docs and dependency advisories, for CI's `mix docs` / `mix deps.audit`.
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -111,7 +115,17 @@ defmodule AshAgentTools.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "usage-rules.md", "usage-rules/iron-laws.md"]
+      extras: ["README.md", "usage-rules.md", "usage-rules/iron-laws.md"] ++ extra_docs()
     ]
+  end
+
+  # EXTRA_DOCS=AGENTS.md mix docs routes standalone agent docs (AGENTS.md,
+  # usage rules output) through the extras pipeline so broken refs warn like
+  # any other doc. The value is a single Path.wildcard glob; e.g.
+  # EXTRA_DOCS='AGENTS.md' or EXTRA_DOCS='usage-rules/*.md' (avoid globs that
+  # match files already in extras — ex_doc would see a duplicate entry). CI
+  # may add warnings_as_errors: true.
+  defp extra_docs do
+    if glob = System.get_env("EXTRA_DOCS"), do: Path.wildcard(glob), else: []
   end
 end
