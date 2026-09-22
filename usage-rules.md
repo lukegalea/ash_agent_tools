@@ -283,6 +283,18 @@ Serena's `Class/method` addressing:
     Module/actions/name           Module/policies/policy[0]
     Module/calculations/name      Domain/code_interfaces/name
 
+Custom Spark extension sections are addressed the same way, through a
+namespaced dsl_path: `<extension_short_name>_<section_path>` — the
+underscored last component of the extension module with a trailing
+`_extension`/`_dsl` stripped (`MyApp.Rules.Dsl` → `rules`), so a
+`fact_schema do … end` block resolves as
+`Module/rules_fact_schema/<entity>` (nested sections extend the path).
+Entity names come from the entity's own `:name`/`:id`/`:tag` field, with
+a positional `<section>_<index>` fallback when an entity exposes none.
+The same kinds appear in `semantic_search/2` (`:kinds` filter included)
+and `context/3` output — search `AshAgentTools.Search.valid_kinds/0` for
+the live list.
+
 The module part may be a dot-boundary **suffix** (`User/actions/read`);
 a leading `/` demands the full module name. Policies are unnamed, so they
 are addressed by occurrence. `AshAgentTools.resolve/1` returns the symbol

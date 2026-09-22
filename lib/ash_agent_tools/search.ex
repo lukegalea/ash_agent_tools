@@ -18,6 +18,7 @@ defmodule AshAgentTools.Search do
   alias AshAgentTools.Registry
   alias AshAgentTools.Source
   alias AshAgentTools.Suggest
+  alias AshAgentTools.Symbols
   alias AshAgentTools.Types
 
   @valid_kinds [:attribute, :action, :calculation, :relationship]
@@ -27,10 +28,14 @@ defmodule AshAgentTools.Search do
   @kind_lookup Map.new(@valid_kinds, fn kind -> {Atom.to_string(kind), kind} end)
 
   @doc """
-  The symbol kinds `semantic_search/2` knows, in result-order preference.
+  The symbol kinds `semantic_search/2` knows, in result-order preference:
+  the four core kinds, plus whatever kinds the generic extension-section
+  probe (`AshAgentTools.Symbols.extension_symbols/1`) currently projects
+  across loaded resources — a custom Spark DSL's sections become
+  searchable (and filterable) the moment a resource declares them.
   """
-  @spec valid_kinds() :: [:attribute | :action | :calculation | :relationship]
-  def valid_kinds, do: @valid_kinds
+  @spec valid_kinds() :: [atom()]
+  def valid_kinds, do: Enum.uniq(@valid_kinds ++ dynamic_kinds())
 
   @doc """
   Searches symbol names across all loaded Ash resources by substring.
@@ -40,7 +45,8 @@ defmodule AshAgentTools.Search do
   name, so the output is deterministic. Each hit carries:
 
     * `resource` — the declaring resource module
-    * `kind` — `:attribute`, `:action`, `:calculation`, or `:relationship`
+    * `kind` — `:attribute`, `:action`, `:calculation`, `:relationship`,
+      or a namespaced custom extension kind (see `valid_kinds/0`)
     * `name` — the symbol name
     * `type` — the normalized type (`Types.normalize/1` for fields,
       the action/relationship type for actions and relationships)
@@ -50,7 +56,9 @@ defmodule AshAgentTools.Search do
   Options:
 
     * `:kinds` — restrict the search to one kind or a list of kinds
-      (atoms or strings). Unknown kinds raise `ArgumentError`.
+      (atoms or strings). Unknown kinds raise `ArgumentError`; the valid
+      set is `valid_kinds/0` — the core kinds plus the custom extension
+      kinds currently projected.
     * `:max_results` — refinement limit (positive integer, default
       #{@default_max_results}): when more symbols match, the search raises
       with per-resource counts instead of returning a wall of hits
@@ -186,8 +194,9 @@ defmodule AshAgentTools.Search do
     MapSet.new(kinds, fn kind ->
       normalized =
         cond do
-          is_atom(kind) and kind in @valid_kinds -> kind
+          is_atom(kind) and kind in valid_kinds() -> kind
           is_binary(kind) and Map.has_key?(@kind_lookup, kind) -> Map.fetch!(@kind_lookup, kind)
+          is_binary(kind) and kind in dynamic_kind_names() -> String.to_atom(kind)
           true -> raise ArgumentError, unknown_kind_message(kind)
         end
 
@@ -199,14 +208,27 @@ defmodule AshAgentTools.Search do
 
   defp unknown_kind_message(kind) do
     "unknown symbol kind #{inspect(kind)}." <>
-      " Valid kinds: #{inspect(@valid_kinds)} (strings accepted too)"
+      " Valid kinds: #{inspect(valid_kinds())} (strings accepted too)"
   end
+
+  # The kinds the generic extension-section probe currently projects
+  # (empty in an application with no custom Spark resource extensions).
+  defp dynamic_kinds do
+    for resource <- Registry.list_resources(),
+        symbol <- Symbols.extension_symbols(resource),
+        uniq: true do
+      symbol.kind
+    end
+  end
+
+  defp dynamic_kind_names, do: Enum.map(dynamic_kinds(), &Atom.to_string/1)
 
   defp kind_allowed?(_result, nil), do: true
   defp kind_allowed?(result, kinds), do: MapSet.member?(kinds, result.kind)
 
-  # One pass over every loaded resource, collecting the four symbol kinds.
-  # All resources are visited even with a kind filter: the filter is cheap,
+  # One pass over every loaded resource, collecting the core kinds plus
+  # whatever custom extension sections are projected. All resources are
+  # visited even with a kind filter: the filter is cheap,
   # and the sorted result makes the ordering deterministic either way.
   defp collect(needle) do
     for resource <- Registry.list_resources(),
@@ -252,6 +274,22 @@ defmodule AshAgentTools.Search do
           type: relationship.type,
           source: Source.from_entity(relationship)
         }
-      end)
+      end) ++ extension_symbols(resource)
+  end
+
+  # Custom extension-section symbols (see
+  # `AshAgentTools.Symbols.extension_symbols/1`), mapped into the search
+  # hit shape. The four core kinds stay in `symbols/1` above: their
+  # projections and this one must not double-report.
+  defp extension_symbols(resource) do
+    for symbol <- Symbols.extension_symbols(resource) do
+      %{
+        resource: resource,
+        kind: symbol.kind,
+        name: symbol.name,
+        type: symbol.type,
+        source: symbol.source
+      }
+    end
   end
 end

@@ -205,17 +205,11 @@ defmodule AshAgentTools.NamePath do
   defp segment_symbol!(module, module_kind, raw_kind, raw_target, name_path) do
     {target, index} = parse_target!(raw_target, name_path)
 
-    # validation only: the symbol index stores canonical dsl_path strings
-    _kind =
-      @kind_paths[raw_kind] ||
-        raise ArgumentError,
-              "unknown dsl_path #{inspect(raw_kind)} in #{inspect(name_path)}." <>
-                " Valid dsl_paths: #{inspect(Map.keys(@kind_paths))}"
+    symbols = Symbols.module_symbols(module, module_kind)
+    ensure_known_dsl_path!(symbols, raw_kind, name_path)
 
     symbols =
-      module
-      |> Symbols.module_symbols(module_kind)
-      |> Enum.filter(&(&1.dsl_path == raw_kind and to_string(&1.name) == target))
+      Enum.filter(symbols, &(&1.dsl_path == raw_kind and to_string(&1.name) == target))
 
     cond do
       symbols == [] ->
@@ -239,6 +233,21 @@ defmodule AshAgentTools.NamePath do
                 unknown_segment_message(module, module_kind, raw_kind, target, index)
 
         Map.put(symbol, :span, span_for(module, module_kind, symbol))
+    end
+  end
+
+  # The core dsl_paths are fixed; custom extension sections (see
+  # `AshAgentTools.Symbols.extension_symbols/1`) are addressed through
+  # their namespaced dsl_path and are valid exactly when the module's
+  # index projects one.
+  defp ensure_known_dsl_path!(symbols, raw_kind, name_path) do
+    known_paths = MapSet.new(Map.keys(@kind_paths))
+
+    unless MapSet.member?(known_paths, raw_kind) or
+             Enum.any?(symbols, &(&1.dsl_path == raw_kind)) do
+      raise ArgumentError,
+            "unknown dsl_path #{inspect(raw_kind)} in #{inspect(name_path)}." <>
+              " Valid dsl_paths: #{inspect(Enum.sort(Enum.uniq(MapSet.to_list(known_paths) ++ Enum.map(symbols, & &1.dsl_path))))}"
     end
   end
 

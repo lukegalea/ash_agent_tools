@@ -11,7 +11,9 @@
   AshAgentTools.Test.Author,
   AshAgentTools.Test.Comment,
   AshAgentTools.Test.Guarded,
-  AshAgentTools.Test.ContextProbe
+  AshAgentTools.Test.ContextProbe,
+  AshAgentTools.Test.ProbeDsl,
+  AshAgentTools.Test.Probed
 ]
 |> Enum.each(&Code.ensure_loaded!/1)
 

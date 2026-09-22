@@ -100,6 +100,14 @@ Keeping the API plain has two more benefits:
   calculations, and relationships across loaded resources by name substring
   (case-insensitive, optional kind filter), each hit with its normalized
   type and Spark source location.
+- **Custom extension sections** — Spark extension sections beyond Ash's
+  core DSL (an `a2ui do … end` block, a rules DSL's `fact_schema`) are
+  projected into the symbol index generically: each becomes a namespaced
+  kind `<extension>_<section>` (e.g. `MyApp.Rules.Dsl` + `fact_schema` →
+  `rules_fact_schema`), with entity names from `:name`/`:id`/`:tag` and a
+  positional fallback for entities that expose none — so search, context,
+  name paths, and semantic edits reach custom DSL entities with no
+  per-DSL code.
 - **Position context** — `context/3` takes a file path and 1-based line and
   returns which loaded Ash resource/domain declares there, the symbol whose
   declaration span covers the line, the nearest symbols, what references
