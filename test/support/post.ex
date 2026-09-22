@@ -9,7 +9,13 @@ defmodule AshAgentTools.Test.Post do
   the introspection API never runs actions, so nothing needs persisting.
   """
 
-  use Ash.Resource, domain: AshAgentTools.Test.Domain
+  # A data layer is declared only so the `comment_count` aggregate below
+  # passes Ash's ValidateAggregatesSupported verifier (plain data-layer-less
+  # resources are not aggregatable). The introspection API never runs
+  # actions; see AshAgentTools.Test.SimpleDataLayer.
+  use Ash.Resource,
+    domain: AshAgentTools.Test.Domain,
+    data_layer: AshAgentTools.Test.SimpleDataLayer
 
   attributes do
     uuid_primary_key :id

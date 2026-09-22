@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Luke Galea
+# SPDX-License-Identifier: MIT
+
+name: Set up Elixir
+description: >
+  Installs the pinned Erlang/Elixir pair, restores the dependency and build
+  cache for the requested MIX_ENV, and fetches dependencies.
+
+inputs:
+  mix-env:
+    description: The MIX_ENV to fetch and build for.
+    required: false
+    default: test
+
+runs:
+  using: composite
+  steps:
+    - uses: erlef/setup-beam@v1.24.1
+      with:
+        # Pinned to the minor rather than the patch so a missing prebuilt
+        # image for one patch release cannot break CI.
+        otp-version: "27"
+        elixir-version: "1.18"
+
+    - uses: actions/cache@v6.1.0
+      with:
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-mix-${{ inputs.mix-env }}-${{ hashFiles('mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-${{ inputs.mix-env }}-
+
+    - name: Install hex and rebar
+      shell: bash
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+
+    - name: Fetch dependencies
+      shell: bash
+      env:
+        MIX_ENV: ${{ inputs.mix-env }}
+      run: mix deps.get

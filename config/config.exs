@@ -10,7 +10,8 @@ import Config
 config :ash, default_string_length_count: :codepoints
 
 if config_env() == :test do
-  # The test support domain must be registered so Ash's
-  # domain-config-inclusion verifier accepts it.
-  config :ash_agent_tools, ash_domains: [AshAgentTools.Test.Domain]
+  # The test support domains must be registered so Ash's
+  # domain-config-inclusion verifier accepts them.
+  config :ash_agent_tools,
+    ash_domains: [AshAgentTools.Test.Domain, AshAgentTools.Test.InterfaceDomain]
 end

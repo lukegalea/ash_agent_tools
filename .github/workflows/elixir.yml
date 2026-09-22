@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: 2026 Luke Galea
+# SPDX-License-Identifier: MIT
+
+# These checks are the ones ash-project's shared `ash-ci.yml` runs, written out
+# here instead of called.
+#
+# The shared workflow's credo job declares `permissions: security-events: write`
+# — and a job-level permissions block *replaces* the default set rather than
+# adding to it, so that job's token has no `contents: read`. On a public repo
+# actions/checkout needs no token and nobody notices; on a private one it fails
+# with "Repository not found", and a caller cannot grant back a permission the
+# called workflow dropped. So the shared workflow only stays green while this
+# repository stays public; this copy keeps working either way.
+#
+# Keep this file in step with upstream when adopting new checks. Its Credo SAST
+# upload is deliberately omitted: code scanning uploads need GitHub Advanced
+# Security, which private repositories do not have by default.
+
+name: Elixir CI
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+env:
+  MIX_ENV: test
+
+jobs:
+  test:
+    name: mix test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+      # The suite is pure in-process Ash introspection (test/support resources
+      # with simple_sat; no repo, no database), so there is no postgres
+      # service here.
+      - run: mix test
+
+  compile-test:
+    name: MIX_ENV=test mix compile --warnings-as-errors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+      - run: mix compile --force --warnings-as-errors
+
+  compile-dev:
+    name: MIX_ENV=dev mix compile --warnings-as-errors
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+        with:
+          mix-env: dev
+      # dev is also where the analysis and docs tooling itself compiles
+      # (credo, dialyxir, ex_doc), so its warnings surface here too.
+      - run: mix compile --force --warnings-as-errors
+
+  format:
+    name: mix format --check-formatted
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+      - run: mix format --check-formatted
+
+  credo:
+    name: mix credo --strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+      - run: mix credo --strict
+
+  dialyzer:
+    name: mix dialyzer
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+        with:
+          mix-env: dev
+      # No plt_file is configured, so dialyxir keeps the PLT under _build —
+      # already restored by the setup action's cache, keyed by mix.lock.
+      - run: mix dialyzer --format short
+
+  docs:
+    name: mix docs
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+        with:
+          mix-env: dev
+      - run: mix docs
+
+  unused-deps:
+    name: mix deps.unlock --check-unused
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+      - run: mix deps.unlock --check-unused
+
+  audit:
+    name: mix deps.audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+      - run: mix deps.audit
+
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: fsfe/reuse-action@v6
