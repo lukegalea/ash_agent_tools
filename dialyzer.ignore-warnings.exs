@@ -18,5 +18,11 @@
   # the bundle verifiers it runs return a list of Spark errors. The is_list
   # clause in load_bundle_document/1 handles that real runtime shape; the
   # guard warning is the spec's imprecision, not a bug.
-  {"lib/ash_agent_tools/rules.ex", :guard_fail}
+  {"lib/ash_agent_tools/rules.ex", :guard_fail},
+
+  # resolve_module_only/1 rescues the ArgumentError NamePath.resolve raises
+  # for unknown module parts — a batch op with a typo'd module must come
+  # back as a structured error, not crash the caller. Dialyzer believes the
+  # raise is unreachable; the rescue is the contract.
+  {"lib/ash_agent_tools/edit.ex", :pattern_match_cov}
 ]

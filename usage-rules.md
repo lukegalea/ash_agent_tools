@@ -462,9 +462,48 @@ are addressed by occurrence. `AshAgentTools.resolve/1` returns the symbol
 shape digest; misses raise with did_you_mean candidates, ambiguous
 suffixes raise with the match list — refine and retry.
 
+**Creation** — agents create more than they edit, so the editor creates
+too: `Edit.create_entity(section_path, body, opts)` inserts a new entity
+into any addressable section, `section_path` being
+`"Module/dsl_path"` (`"MyApp.Post/actions"`). Placement ladder (reported
+as `placement`): an `anchor:` + `position:` (`:after` default) next to an
+existing entity; else the section tail; else, when the section's block
+exists but is empty (or holds only transformer-injected entities), inside
+the block before its `end`; else the block is **synthesized**
+(`actions do … end` appended within the module body — after the last
+section block, or before the final `end` when none exists) and the
+placement says `:synthesized_section`. A duplicate identifier is refused
+with a pointer to the existing entity.
+
+**Batch apply** — `Edit.apply_batch/2` takes a list of ops (any mix of
+create/replace/insert/delete, JSON-shaped maps) and applies them
+transactionally: one digest handshake up front, sequential in-memory
+application — later ops may anchor on entities created earlier in the
+batch — one atomic write, one gate. Any failure at any step reverts
+everything: no partial application. `mix ash_agent.edit --batch ops.json`
+drives it from the shell.
+
+**The formatter contract** — region-correct indentation is unconditional;
+a whole-file reformat happens if and only if the touched file was already
+format-clean (formatter rules resolved from the project the file lives
+in, including the `locals_without_parens` its `import_deps` export). A
+dirty file is left exactly as spliced and every report carries
+`format_hint: "run mix format"` — never surprise-diff a file that wasn't
+clean.
+
+The Serena-shaped loop, end to end: `resolve` (address the entity) →
+dry-run (diff + digest) → `--write --expected-digest` (handshake, splice,
+format) → gate (recompile + validate canary, auto-revert on failure).
+
+Boundaries, deliberate: still no daemon/MCP edit tool (edits are
+compile-time DSL text; an MFA driven from client JSON over a daemon would
+be RCE). Policies remain positional. Rename propagation remains future
+work.
+
 **`AshAgentTools.Edit`** performs semantic edits at those anchors:
 `replace_entity_block/3`, `insert_before_entity/3`,
-`insert_after_entity/3`, `safe_delete_entity/2`. The safety model is
+`insert_after_entity/3`, `safe_delete_entity/2`, `create_entity/3`,
+`apply_batch/2`. The safety model is
 mechanical, not prompt-level:
 
 1. **Dry-run default.** Without `write: true` you get the planned diff and
@@ -480,9 +519,15 @@ mechanical, not prompt-level:
    the resource runs a per-action validate canary; a failed gate reverts
    the file and reports the diagnostics. `safe_delete_entity/2` refuses
    while anything references the entity (`has_references`, with the list).
+6. **Formatter contract.** Region-correct indentation is unconditional;
+   the whole file is reformatted only when it was already format-clean.
+   Otherwise the report says `format_hint: "run mix format"` and nothing
+   else is touched.
 
-`mix ash_agent.edit OP NAME_PATH [--body ... | --body-file FILE] [--write
---expected-digest D]` wraps all of it with the same JSON contract.
+`mix ash_agent.edit OP NAME_PATH [--body ... | --body-file FILE]
+[--anchor NAME_PATH --position after|before] [--batch FILE]
+[--write --expected-digest D]` wraps all of it with the same JSON
+contract.
 
 Truncation is a ladder, not a wall: `semantic_search/2` takes
 `:max_results` (default 100) and refuses over-limit searches with

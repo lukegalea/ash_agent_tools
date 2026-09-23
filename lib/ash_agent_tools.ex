@@ -664,7 +664,8 @@ defmodule AshAgentTools do
                                                               # {:ok, %{module, match, nearest, references, manifests}} for a file position
         AshAgentTools.explain_trace(spans)                    # trace reduction: errors, queries (N+1 flagged), policies, budget-bounded
         AshAgentTools.resolve("MyApp.Post/actions/by_tag")    # name-path resolution: symbol, span, provenance, shape digest
-                                                              # (edits: AshAgentTools.Edit.replace_entity_block/3 et al. — dry-run by default)
+                                                              # (edits: AshAgentTools.Edit — create_entity, replace/insert/safe_delete,
+                                                              #  apply_batch; dry-run by default, digest handshake, auto-revert gate)
         AshAgentTools.judge_laws(source)                      # iron-law judge: violations vs the 26 laws, tiered definite/likely/review
         AshAgentTools.availability()                          # which optional integrations are active (ash_rules, ash_state_machine)
 

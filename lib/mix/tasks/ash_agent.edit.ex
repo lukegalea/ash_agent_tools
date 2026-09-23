@@ -12,10 +12,29 @@ defmodule Mix.Tasks.AshAgent.Edit do
 
   Operations:
 
+    * `create SECTION_PATH` — create a new entity inside a section, empty
+      sections included: `SECTION_PATH` is `"Module/dsl_path"` (e.g.
+      `MyApp.Post/actions`), and a missing `section do … end` block is
+      synthesized inside the module body. Optional `--anchor NAME_PATH
+      --position after|before` places the entity next to an existing one
     * `replace NAME_PATH` — swap the entity's source block for `--body`
     * `insert-before NAME_PATH` / `insert-after NAME_PATH` — anchor inserts
     * `delete NAME_PATH` — safe delete; refuses while anything references
       the entity
+
+  Batch mode — `--batch FILE` (a JSON array of op maps, or `-` for stdin):
+
+      [{"op": "create_entity", "section_path": "MyApp.Post/actions",
+        "body": "update :check_in do accept [] end"},
+       {"op": "insert_after_entity", "name_path": "MyApp.Post/actions/check_in",
+        "body": "attribute :reviewed, :boolean"}]
+
+  One digest handshake for the whole file, sequential in-memory application
+  (later ops may anchor on entities created earlier in the batch), one
+  atomic write, one gate — any failure at any step reverts everything.
+  Op names: `create_entity`, `replace_entity_block`, `insert_before_entity`,
+  `insert_after_entity`, `safe_delete_entity` (the CLI verbs are accepted as
+  aliases).
 
   **Dry-run by default.** Without `--write` the task prints the planned
   diff plus the file's shape digest and changes nothing. To apply:
@@ -26,6 +45,10 @@ defmodule Mix.Tasks.AshAgent.Edit do
   The `--expected-digest` handshake is the mechanical read-before-edit: it
   is the `current_digest` from your dry-run (or `AshAgentTools.Edit.shape/1`),
   and a mismatch refuses the write.
+
+  Formatter contract: a format-clean file is reformatted whole after the
+  edit; a file that was not clean is left exactly as spliced and the report
+  carries `"format_hint":"run mix format"`.
 
   Every applied write passes the post-edit gate: the file is recompiled
   with diagnostics captured and the affected resource runs a per-action
@@ -41,8 +64,9 @@ defmodule Mix.Tasks.AshAgent.Edit do
 
   ## Usage
 
-      mix ash_agent.edit OP NAME_PATH [--body TEXT | --body-file FILE]
-          [--write] [--expected-digest D] [--out FILE] [--pretty] [--verbose]
+      mix ash_agent.edit OP NAME_PATH|SECTION_PATH
+          [--body TEXT | --body-file FILE] [--anchor NAME_PATH] [--position after|before]
+          [--write] [--expected-digest D] [--batch FILE|-] [--out FILE] [--pretty] [--verbose]
 
   `--body-file -` reads the body from stdin.
 
@@ -54,9 +78,16 @@ defmodule Mix.Tasks.AshAgent.Edit do
        "file":"lib/my_app/post.ex","dry_run?":true,"diff":"@@ line 35 @@\\n- ...",
        "current_digest":"9f2c..."}
 
+      $ mix ash_agent.edit create MyApp.Post/actions \
+          --body "update :check_in do accept [] end" --write --expected-digest 9f2c...
+      {"op":"create_entity","placement":"synthesized_section",
+       "name_path":"MyApp.Post/actions/check_in",...}
+
+      $ mix ash_agent.edit --batch ops.json --write --expected-digest 9f2c...
+      {"op":"apply_batch","op_count":2,"ops":[...],"combined_diff":"...","applied?":true,...}
+
       $ mix ash_agent.edit delete MyApp.Post/actions/by_tag --write --expected-digest 9f2c...
       {"error":"has_references","references":[...],"reverted?":null,...}
-
   """
 
   use Mix.Task
@@ -71,7 +102,8 @@ defmodule Mix.Tasks.AshAgent.Edit do
     "replace" => :replace_entity_block,
     "insert-before" => :insert_before_entity,
     "insert-after" => :insert_after_entity,
-    "delete" => :safe_delete_entity
+    "delete" => :safe_delete_entity,
+    "create" => :create_entity
   }
 
   @impl Mix.Task
@@ -81,6 +113,9 @@ defmodule Mix.Tasks.AshAgent.Edit do
         strict: [
           body: :string,
           body_file: :string,
+          anchor: :string,
+          position: :string,
+          batch: :string,
           write: :boolean,
           expected_digest: :string,
           pretty: :boolean,
@@ -107,7 +142,21 @@ defmodule Mix.Tasks.AshAgent.Edit do
     end)
   end
 
-  defp dispatch([op_name, name_path], opts) when is_map_key(@ops, op_name) do
+  defp dispatch(positional, opts) do
+    if opts[:batch] do
+      dispatch_batch(opts)
+    else
+      dispatch_op(positional, opts)
+    end
+  end
+
+  defp dispatch_batch(opts) do
+    ops = decode_batch!(opts[:batch])
+    write_opts = [write: !!opts[:write], expected_digest: opts[:expected_digest]]
+    Edit.apply_batch(ops, write_opts)
+  end
+
+  defp dispatch_op([op_name, target], opts) when is_map_key(@ops, op_name) do
     op = Map.fetch!(@ops, op_name)
     write? = !!opts[:write]
     body = body!(opts, op)
@@ -116,14 +165,17 @@ defmodule Mix.Tasks.AshAgent.Edit do
       opts
       |> Keyword.take([:expected_digest])
       |> Keyword.put(:write, write?)
+      |> Keyword.put(:anchor, opts[:anchor])
+      |> Keyword.put(:position, position(opts[:position]))
 
     case op do
-      :safe_delete_entity -> Edit.safe_delete_entity(name_path, write_opts)
-      op -> apply(Edit, op, [name_path, body, write_opts])
+      :safe_delete_entity -> Edit.safe_delete_entity(target, write_opts)
+      :create_entity -> Edit.create_entity(target, body, write_opts)
+      op -> apply(Edit, op, [target, body, write_opts])
     end
   end
 
-  defp dispatch([op_name | _], _opts) when not is_map_key(@ops, op_name) do
+  defp dispatch_op([op_name | _], _opts) when not is_map_key(@ops, op_name) do
     {:error,
      %{
        error: "unknown_operation",
@@ -132,15 +184,56 @@ defmodule Mix.Tasks.AshAgent.Edit do
      }}
   end
 
-  defp dispatch(_positional, _opts) do
+  defp dispatch_op(_positional, _opts) do
     {:error,
      %{
        error: "usage",
        message:
-         "Usage: mix ash_agent.edit replace|insert-before|insert-after|delete NAME_PATH" <>
-           " [--body TEXT | --body-file FILE] [--write] [--expected-digest D]"
+         "Usage: mix ash_agent.edit create|replace|insert-before|insert-after|delete" <>
+           " NAME_PATH|SECTION_PATH [--body TEXT | --body-file FILE]" <>
+           " [--anchor NAME_PATH --position after|before] [--batch FILE|-]" <>
+           " [--write] [--expected-digest D]"
      }}
   end
+
+  defp decode_batch!("-") do
+    case IO.read(:stdio, :eof) |> Jason.decode() do
+      {:ok, ops} ->
+        ops
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid --batch JSON: #{Exception.message(reason)}"
+    end
+  end
+
+  defp decode_batch!(path) do
+    case File.read(path) do
+      {:ok, body} ->
+        case Jason.decode(body) do
+          {:ok, %{"ops" => ops}} ->
+            ops
+
+          {:ok, ops} when is_list(ops) ->
+            ops
+
+          {:ok, _} ->
+            raise ArgumentError, "--batch JSON must be an array of ops"
+
+          {:error, reason} ->
+            raise ArgumentError, "invalid --batch JSON: #{Exception.message(reason)}"
+        end
+
+      {:error, reason} ->
+        raise ArgumentError, "cannot read --batch file: #{inspect(reason)}"
+    end
+  end
+
+  defp position(nil), do: nil
+  defp position("after"), do: :after
+  defp position("before"), do: :before
+
+  defp position(other),
+    do: raise(ArgumentError, "invalid --position #{inspect(other)}: use after or before")
 
   defp body!(_opts, :safe_delete_entity), do: nil
 

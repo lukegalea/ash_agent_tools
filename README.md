@@ -211,12 +211,20 @@ Keeping the API plain has two more benefits:
   suffix-matched modules) with spans, provenance, and a shape digest;
   `AshAgentTools.Edit` performs anchor edits (`replace_entity_block`,
   `insert_before_entity`, `insert_after_entity`, `safe_delete_entity`)
-  with a mechanical read-before-edit digest handshake, a provenance guard
-  against transformer-injected declarations, atomic writes that preserve
-  EOLs/indentation, and a post-edit compile+validate gate that reverts on
-  failure. `mix ash_agent.edit` is dry-run by default. Search and context
-  outputs use Serena-style truncation ladders (over-limit refinement
-  errors, capped lists with shown/total markers).
+  **and creation** (`create_entity` — into any addressable section, empty
+  sections included: a missing `actions do … end` block is synthesized
+  inside the module body) with a mechanical read-before-edit digest
+  handshake, a provenance guard against transformer-injected declarations,
+  atomic writes that preserve EOLs/indentation, and a post-edit compile +
+  validate gate that reverts on failure. `apply_batch/2` applies a mix of
+  ops to one file transactionally — one handshake, sequential in-memory
+  application (later ops may anchor on earlier creations), one write, one
+  gate, no partial application. `mix ash_agent.edit` is dry-run by default
+  and takes `--batch <json-file>`. Search and context outputs use
+  Serena-style truncation ladders (over-limit refinement errors, capped
+  lists with shown/total markers). The formatter contract: region-correct
+  indentation always; a whole-file reformat only when the file was already
+  format-clean — otherwise a `format_hint` tells you to run `mix format`.
 
 - **Iron-law judge** — `judge_laws/2` (and `mix ash_agent.laws`) checks a
   snippet, file, or unified diff against the codified *26 Iron Laws*
