@@ -80,6 +80,19 @@ defmodule AshAgentTools.MixProject do
       {:observer_cli, "~> 2.0", only: :dev, optional: true},
       {:recon, "2.5.6", only: :dev, optional: true},
 
+      # Optional concept tooling. Hosts add the dep, the tools activate
+      # (see AshAgentTools.Availability); without them the rules/transitions
+      # tools answer with a structured "add the dep" error and the package
+      # stays useful. Both are gated behind `Code.ensure_loaded?/1`
+      # conditional compilation (the Ecto-Jason pattern, as with the MCP
+      # plug) so a host without either still compiles this package cleanly.
+      #
+      # ash_rules (compliance rules as data — fact schemas + dry evaluation)
+      # lives on GitHub; ash_state_machine (states/transitions + Mermaid
+      # charts) is on hex.
+      {:ash_rules, github: "lukegalea/ash_rules", optional: true},
+      {:ash_state_machine, "~> 0.2.13", optional: true},
+
       # Optional MCP-over-HTTP daemon (`mix ash_agent.serve`). All three are
       # `optional:` so hosts pay nothing unless they serve the daemon, and the
       # package keeps its MIT/no-hard-dep story. The serve task and supervisor

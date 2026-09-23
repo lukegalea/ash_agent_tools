@@ -38,6 +38,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.DEP_TOKEN }}
       # The suite is pure in-process Ash introspection (test/support resources
       # with simple_sat; no repo, no database), so there is no postgres
       # service here.
@@ -49,6 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.DEP_TOKEN }}
       - run: mix compile --force --warnings-as-errors
 
   compile-dev:
@@ -61,6 +65,7 @@ jobs:
       - uses: ./.github/actions/setup-elixir
         with:
           mix-env: dev
+          deps-token: ${{ secrets.DEP_TOKEN }}
       # dev is also where the analysis and docs tooling itself compiles
       # (credo, dialyxir, ex_doc), so its warnings surface here too.
       - run: mix compile --force --warnings-as-errors
@@ -71,6 +76,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.DEP_TOKEN }}
       - run: mix format --check-formatted
 
   credo:
@@ -79,6 +86,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.DEP_TOKEN }}
       - run: mix credo --strict
 
   dialyzer:
@@ -91,6 +100,7 @@ jobs:
       - uses: ./.github/actions/setup-elixir
         with:
           mix-env: dev
+          deps-token: ${{ secrets.DEP_TOKEN }}
       # No plt_file is configured, so dialyxir keeps the PLT under _build —
       # already restored by the setup action's cache, keyed by mix.lock.
       - run: mix dialyzer --format short
@@ -105,6 +115,7 @@ jobs:
       - uses: ./.github/actions/setup-elixir
         with:
           mix-env: dev
+          deps-token: ${{ secrets.DEP_TOKEN }}
       - run: mix docs
 
   unused-deps:
@@ -113,6 +124,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.DEP_TOKEN }}
       - run: mix deps.unlock --check-unused
 
   audit:
@@ -121,6 +134,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.DEP_TOKEN }}
       - run: mix deps.audit
 
   reuse:

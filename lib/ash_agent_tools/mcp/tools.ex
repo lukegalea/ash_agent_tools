@@ -15,9 +15,12 @@ defmodule AshAgentTools.Mcp.Tools do
   |---|---|
   | `ash_describe` | `describe_resource/1` / `describe_action/2`; no args → discovery summary |
   | `ash_validate` | `validate_input/3` — validate-by-casting without executing |
+  | `ash_can` | `can/4` — actor-aware policy verdicts, no execution |
   | `ash_search` | `semantic_search/2` |
   | `ash_context` | `context/3` — the grep → read → re-grep collapse |
-  | `ash_forbidden` | `explain_forbidden/2` — policy guidance, not verdicts |
+  | `ash_forbidden` | `explain_forbidden/2` — the static policy listing |
+  | `ash_rules` | `rule_sets/0` / `evaluate_rules/3` — optional `ash_rules` tooling |
+  | `ash_transitions` | `transitions/2` — optional `ash_state_machine` tooling |
   | `ash_daemon_status` | `AshAgentTools.Daemon.Runtime.status/1` |
   | `ash_reload` | `AshAgentTools.Daemon.Runtime.request_reload/2` |
 
@@ -92,6 +95,34 @@ defmodule AshAgentTools.Mcp.Tools do
         ["resource", "action"]
       ),
       card(
+        "ash_can",
+        "Answer whether an actor can perform an Ash action — a policy " <>
+          "verdict WITHOUT executing anything: resolves the actor record, " <>
+          "builds the changeset/query, and evaluates it with Ash.can/3 " <>
+          "(run_queries? disabled, so data-dependent checks come back as " <>
+          "a maybe verdict).",
+        %{
+          "resource" => %{type: "string", description: "Resource module name."},
+          "action" => %{type: "string", description: "Action name, e.g. \"create\"."},
+          "actor" => %{
+            description:
+              "The actor: none (default), MODULE:ID, an object with resource " <>
+                "and id keys, or record (the target record acts)."
+          },
+          "params" => %{
+            type: "object",
+            description: "Optional input the changeset/query would carry.",
+            additionalProperties: true
+          },
+          "record" => %{
+            type: "string",
+            description:
+              "Target record id for update/destroy actions (default: the actor's own record)."
+          }
+        },
+        ["resource", "action"]
+      ),
+      card(
         "ash_search",
         "Search attributes, actions, calculations, and relationships across all " <>
           "loaded Ash resources by name substring (case-insensitive).",
@@ -129,6 +160,48 @@ defmodule AshAgentTools.Mcp.Tools do
           "action" => %{
             type: "string",
             description: "Action name (optional; all policies when omitted)."
+          }
+        },
+        ["resource"]
+      ),
+      card(
+        "ash_rules",
+        "AshRules rule-set tooling (requires the optional ash_rules dep; " <>
+          "otherwise returns the structured install hint). No arguments: " <>
+          "list every loaded rule set with fact schemas and rules. With " <>
+          "module/bundle and facts: DRY-evaluate the bundle against fact " <>
+          "triples and return the full result — pure evaluation, zero host state.",
+        %{
+          "module" => %{
+            type: "string",
+            description:
+              "Rule set module name. Omit to list all loaded rule sets (unless bundle is given)."
+          },
+          "bundle" => %{
+            type: "string",
+            description: "Path to a bundle JSON document (alternative to module)."
+          },
+          "facts" => %{
+            type: "array",
+            description:
+              "Fact triples for dry evaluation: objects with subject, predicate and " <>
+                "value keys, or [subject, predicate, value] arrays.",
+            items: %{}
+          }
+        },
+        []
+      ),
+      card(
+        "ash_transitions",
+        "Describe an AshStateMachine resource: states, transitions " <>
+          "(action/from/to), initial states, and the extension's own Mermaid " <>
+          "stateDiagram/flowchart. Requires the optional ash_state_machine dep " <>
+          "(otherwise returns the structured install hint).",
+        %{
+          "resource" => %{type: "string", description: "Resource module name."},
+          "mermaid" => %{
+            type: "boolean",
+            description: "Generate the Mermaid diagrams (default true)."
           }
         },
         ["resource"]
@@ -199,19 +272,63 @@ defmodule AshAgentTools.Mcp.Tools do
       "ash_forbidden" ->
         forbidden(args)
 
-      "ash_daemon_status" ->
-        daemon_status(args)
+      _other ->
+        more_tools(name, args)
+    end
+  end
 
-      "ash_reload" ->
-        reload(args)
+  # The newer/daemon-only tools, split out of dispatch/2 to keep each case
+  # flat.
+  defp more_tools("ash_can", args), do: can(args)
+  defp more_tools("ash_rules", args), do: rules(args)
+  defp more_tools("ash_transitions", args), do: transitions(args)
+  defp more_tools("ash_daemon_status", args), do: daemon_tool("ash_daemon_status", args)
+  defp more_tools("ash_reload", args), do: daemon_tool("ash_reload", args)
 
-      other ->
+  defp more_tools(other, _args) do
+    {:error,
+     %{
+       error: "unknown tool #{inspect(other)}",
+       did_you_mean: Suggest.closest(other, tool_names())
+     }}
+  end
+
+  # The daemon-only pair, split out of dispatch/2 to keep each case flat.
+  defp daemon_tool("ash_daemon_status", _args) do
+    case runtime_server() do
+      nil ->
+        {:ok,
+         %{
+           status: :no_runtime,
+           hint: "the daemon runtime is not started; run mix ash_agent.serve"
+         }}
+
+      server ->
+        {:ok, AshAgentTools.Daemon.Runtime.status(server)}
+    end
+  end
+
+  defp daemon_tool("ash_reload", _args) do
+    case runtime_server() do
+      nil ->
         {:error,
          %{
-           error: "unknown tool #{inspect(other)}",
-           did_you_mean: Suggest.closest(other, tool_names())
+           error: "the daemon runtime is not started",
+           did_you_mean: [],
+           hint: "ash_reload only works inside mix ash_agent.serve"
          }}
+
+      server ->
+        {:ok, AshAgentTools.Daemon.Runtime.request_reload(server)}
     end
+  end
+
+  defp daemon_tool(other, _args) do
+    {:error,
+     %{
+       error: "unknown tool #{inspect(other)}",
+       did_you_mean: Suggest.closest(other, tool_names())
+     }}
   end
 
   # -- tools ---------------------------------------------------------------
@@ -265,32 +382,96 @@ defmodule AshAgentTools.Mcp.Tools do
     end
   end
 
-  defp daemon_status(_args) do
-    case runtime_server() do
-      nil ->
-        {:ok,
-         %{
-           status: :no_runtime,
-           hint: "the daemon runtime is not started; run mix ash_agent.serve"
-         }}
-
-      server ->
-        {:ok, AshAgentTools.Daemon.Runtime.status(server)}
+  defp can(%{} = args) do
+    with {:ok, module} <- required_resource(args["resource"]),
+         {:ok, action} <- required_string(args["action"], "action"),
+         {:ok, actor} <- parse_actor(args["actor"]),
+         {:ok, record} <- optional_record(args["record"]),
+         :ok <- check_params(args["params"]) do
+      safely(module, action, fn ->
+        AshAgentTools.Can.can(module, action, actor, args["params"] || %{}, record: record)
+      end)
     end
   end
 
-  defp reload(_args) do
-    case runtime_server() do
-      nil ->
-        {:error,
-         %{
-           error: "the daemon runtime is not started",
-           did_you_mean: [],
-           hint: "ash_reload only works inside mix ash_agent.serve"
-         }}
+  # Modes: no arguments → list every loaded rule set; `module` → one
+  # bundle report; `module`/`bundle` + `facts` → dry evaluation. One clause
+  # per mode keeps each branch flat.
+  defp rules(%{"module" => module, "bundle" => bundle})
+       when module != nil and bundle != nil do
+    {:error, %{error: "pass either \"module\" or \"bundle\", not both", did_you_mean: []}}
+  end
 
-      server ->
-        {:ok, AshAgentTools.Daemon.Runtime.request_reload(server)}
+  defp rules(%{"module" => module, "facts" => facts} = args)
+       when module != nil and facts != nil do
+    rules_eval(module, nil, args)
+  end
+
+  defp rules(%{"bundle" => bundle, "facts" => facts} = args)
+       when bundle != nil and facts != nil do
+    rules_eval(nil, bundle, args)
+  end
+
+  defp rules(%{"facts" => _facts}) do
+    {:error,
+     %{
+       error: "dry evaluation needs \"module\" (rule set module) or \"bundle\" (file path)",
+       did_you_mean: []
+     }}
+  end
+
+  defp rules(%{"bundle" => bundle}) when bundle != nil do
+    {:error,
+     %{
+       error: "\"bundle\" is only read for dry evaluation — pass \"facts\" too",
+       did_you_mean: []
+     }}
+  end
+
+  defp rules(%{"module" => module}) when module != nil do
+    with {:ok, module} <- required_resource(module) do
+      safely(module, nil, fn -> AshAgentTools.Rules.describe(module) end)
+    end
+  end
+
+  defp rules(_args), do: {:ok, AshAgentTools.rule_sets()}
+
+  defp rules_eval(module, bundle, args) do
+    with {:ok, subject} <- rules_subject(module, bundle),
+         {:ok, triples} <- parse_facts(args["facts"]) do
+      safely(subject, nil, fn -> AshAgentTools.evaluate_rules(subject, triples) end)
+    end
+  end
+
+  # A string "module" is a rule set module name (resolved to its atom); a
+  # "bundle" stays a path — the impl reads the document itself.
+  defp rules_subject(module, _bundle) when is_binary(module) do
+    case required_resource(module) do
+      {:ok, resolved} -> {:ok, resolved}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp rules_subject(_module, bundle) when is_binary(bundle), do: {:ok, bundle}
+
+  defp rules_subject(module, _bundle),
+    do:
+      {:error, %{error: "\"module\" must be a string, got: #{inspect(module)}", did_you_mean: []}}
+
+  # JSON fact triples → {subject, predicate, value} terms; decoding and
+  # validation is the impl's job (schema-typed value conversion included).
+  defp parse_facts(facts) when is_list(facts), do: {:ok, facts}
+
+  defp parse_facts(other),
+    do:
+      {:error,
+       %{error: "\"facts\" must be an array of triples, got: #{inspect(other)}", did_you_mean: []}}
+
+  defp transitions(%{} = args) do
+    with {:ok, module} <- required_resource(args["resource"]) do
+      safely(module, nil, fn ->
+        AshAgentTools.transitions(module, mermaid: args["mermaid"] != false)
+      end)
     end
   end
 
@@ -356,6 +537,42 @@ defmodule AshAgentTools.Mcp.Tools do
   defp check_params(other),
     do:
       {:error, %{error: "\"params\" must be an object, got: #{inspect(other)}", did_you_mean: []}}
+
+  # The MCP spelling of the facade's actor spec: absent/"none" → :none,
+  # "MODULE:ID"/{"resource","id"} → that spec, "record" → :record.
+  defp parse_actor(nil), do: {:ok, :none}
+  defp parse_actor("none"), do: {:ok, :none}
+  defp parse_actor("record"), do: {:ok, :record}
+
+  defp parse_actor(actor) when is_binary(actor) do
+    case String.split(actor, ":", parts: 2) do
+      [resource, id] -> {:ok, %{"resource" => resource, "id" => id}}
+      _ -> {:error, actor_spec_error(actor)}
+    end
+  end
+
+  defp parse_actor(%{"resource" => resource, "id" => id} = spec)
+       when is_binary(resource) and (is_binary(id) or is_number(id)),
+       do: {:ok, Map.take(spec, ["resource", "id"])}
+
+  defp parse_actor(other), do: {:error, actor_spec_error(other)}
+
+  defp actor_spec_error(other) do
+    %{
+      error:
+        "actor must be none, record, MODULE:ID, or an object with resource " <>
+          "and id keys, got: #{inspect(other)}",
+      did_you_mean: []
+    }
+  end
+
+  defp optional_record(nil), do: {:ok, nil}
+  defp optional_record(record) when is_binary(record), do: {:ok, record}
+
+  defp optional_record(other),
+    do:
+      {:error,
+       %{error: "\"record\" must be a string id, got: #{inspect(other)}", did_you_mean: []}}
 
   defp kinds_opts(nil), do: {:ok, []}
 

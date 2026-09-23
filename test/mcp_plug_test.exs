@@ -95,9 +95,12 @@ defmodule AshAgentTools.Mcp.PlugTest do
       assert names == [
                "ash_describe",
                "ash_validate",
+               "ash_can",
                "ash_search",
                "ash_context",
                "ash_forbidden",
+               "ash_rules",
+               "ash_transitions",
                "ash_daemon_status",
                "ash_reload"
              ]

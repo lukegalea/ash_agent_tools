@@ -17,5 +17,7 @@ defmodule AshAgentTools.Test.Domain do
     resource AshAgentTools.Test.Guarded
     resource AshAgentTools.Test.ContextProbe
     resource AshAgentTools.Test.Probed
+    resource AshAgentTools.Test.User
+    resource AshAgentTools.Test.Machine
   end
 end

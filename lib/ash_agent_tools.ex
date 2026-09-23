@@ -33,6 +33,8 @@ defmodule AshAgentTools do
     * `describe_action/2` — accepted inputs, types, return shape, code interfaces
     * `validate_input/3` — cast and validate params without running anything
     * `explain_forbidden/2` — list the policies that can deny an action
+    * `can/4` — the actor-aware verdict: evaluate those policies (still
+      without executing) with the fact-backed per-policy breakdown
     * `semantic_search/2` — find symbols by name substring across resources
     * `diff_manifest/2` — structural diff of two semantic-manifest JSON files
    * `context/3` — the Ash resource/symbol at a file position, plus what
@@ -41,14 +43,21 @@ defmodule AshAgentTools do
      (errors innermost first, queries with N+1 detection, policies,
      notifications, async, symbols)
    * `resolve/1` — name-path addressing over DSL entities
-     (`MyApp.Post/actions/by_tag`, `.../policies/policy[0]`), with spans,
-     provenance, and shape digests — the addressing layer for
-     `AshAgentTools.Edit`'s semantic edit operations
-   * `judge_laws/2` — the deterministic iron-law judge: violations of the
-     codified "26 Iron Laws" in a snippet, file, or unified diff, tiered
-     definite → likely → review, violations-only output
-   * `eval_docs/0` — the exact snippets for using this API in-VM, without a
-     mix boot, when your session is already attached to a running node
+      (`MyApp.Post/actions/by_tag`, `.../policies/policy[0]`), with spans,
+      provenance, and shape digests — the addressing layer for
+      `AshAgentTools.Edit`'s semantic edit operations
+    * `judge_laws/2` — the deterministic iron-law judge: violations of the
+      codified "26 Iron Laws" in a snippet, file, or unified diff, tiered
+      definite → likely → review, violations-only output
+    * `rule_sets/0` and `evaluate_rules/3` — optional `ash_rules` tooling:
+      list a host's rule bundles with fact schemas and rules, and
+      dry-evaluate a bundle against fact triples (zero host state)
+    * `transitions/2` — optional `ash_state_machine` tooling: states,
+      transitions, and Mermaid state diagrams for a state-machine resource
+    * `availability/0` — which optional integrations are active, and the
+      dep to add for each (the optional-dep activation contract)
+    * `eval_docs/0` — the exact snippets for using this API in-VM, without a
+      mix boot, when your session is already attached to a running node
 
   All functions raise `ArgumentError` when pointed at something that is not a
   loaded Ash resource (or an action that does not exist); discovery functions
@@ -61,12 +70,16 @@ defmodule AshAgentTools do
   $ mix ash_agent.describe MyApp.Post
   $ mix ash_agent.describe MyApp.Post --action create
   $ mix ash_agent.validate MyApp.Post create '{"title": "Hello"}'
+  $ mix ash_agent.can MyApp.Post create --actor none
+  $ mix ash_agent.can MyApp.Order approve --actor MyApp.User:8e1c-...
   $ mix ash_agent.search tag
   $ mix ash_agent.diff old.json new.json
   $ mix ash_agent.context lib/my_app/accounts/post.ex:42
   $ mix ash_agent.runtime snapshot   # also: top 20 | tree MyApp
   $ mix ash_agent.gaps               # the kaizen tool-gap digest
   $ mix ash_agent.laws lib/foo.ex    # the iron-law judge (also: --code, --diff)
+  $ mix ash_agent.rules              # optional ash_rules tooling (also: --facts)
+  $ mix ash_agent.transitions MyApp.Order   # optional ash_state_machine tooling
   ```
 
   See `usage-rules.md` at the package root for agent-oriented guidance.
@@ -176,10 +189,11 @@ defmodule AshAgentTools do
   @doc """
   Explains what could forbid an action: the resource's authorization policies.
 
-  This is a guidance stub rather than an evaluator: it lists policies and
-  field policies in human-readable form (via `Ash.Policy.Check.describe/2`)
-  and attaches general hints an agent can reason from. Determining an actual
-  verdict requires an actor and a query/changeset — use `Ash.can?/3` for that.
+  This is the static, actor-free view: it lists policies and field policies
+  in human-readable form (via `Ash.Policy.Check.describe/2`) and attaches
+  general hints an agent can reason from. For an actual verdict with a
+  concrete actor, use `AshAgentTools.can/4` — it evaluates these very
+  policies, still without executing anything.
 
   ## Examples
 
@@ -195,6 +209,151 @@ defmodule AshAgentTools do
   @spec explain_forbidden(module(), atom() | String.t() | nil) :: map()
   def explain_forbidden(resource, action_name \\ nil),
     do: AshAgentTools.Forbidden.explain_forbidden(resource, action_name)
+
+  @doc """
+  Answers "can this actor perform this action?" — a policy verdict, without
+  executing anything.
+
+  Resolves the actor (a `:none`/`nil` spec, or `%{resource: Module, id: id}`
+  — string keys accepted — resolved with `Ash.get!/2` and `authorize?: false`),
+  builds the very changeset/query an action run would build (params
+  optional), and evaluates it with `Ash.can/3`. The subject is never run:
+  no action executes, nothing is written, and the evaluation itself runs
+  with `run_queries?: false`, so data-dependent checks surface as an honest
+  `verdict: :maybe` instead of a guess.
+
+  The report carries `allowed` (the boolean an agent gates on), `verdict`
+  (`:allowed | :forbidden | :maybe`), the fact-backed `per_policy` breakdown
+  with the `responsible` policy when Ash denies, and the same static policy
+  listing `explain_forbidden/2` reports. See `AshAgentTools.Can.can/5` for
+  the full contract (including the `:record` option for update/destroy
+  targets).
+
+  ## Examples
+
+      iex> report = AshAgentTools.can(AshAgentTools.Test.Guarded, :create, :none)
+      iex> {report.allowed, report.verdict}
+      {false, :forbidden}
+
+      iex> {:ok, admin} = Ash.create(Ash.Changeset.for_create(AshAgentTools.Test.User, :create, %{admin: true}), authorize?: false)
+      iex> report = AshAgentTools.can(AshAgentTools.Test.User, :update, %{resource: AshAgentTools.Test.User, id: admin.id})
+      iex> {report.allowed, report.verdict}
+      {true, :allowed}
+
+      iex> {:ok, user} = Ash.create(Ash.Changeset.for_create(AshAgentTools.Test.User, :create, %{email: "u@example.com"}), authorize?: false)
+      iex> report = AshAgentTools.can(AshAgentTools.Test.User, :update, %{resource: AshAgentTools.Test.User, id: user.id})
+      iex> {report.allowed, report.responsible.reason}
+      {false, :unknown}
+
+  """
+  @spec can(module(), atom() | String.t(), AshAgentTools.Can.actor_spec(), map()) :: map()
+  def can(resource, action_name, actor, params \\ %{}),
+    do: AshAgentTools.Can.can(resource, action_name, actor, params)
+
+  @doc """
+  Lists the loaded `AshRules` rule sets with their fact schemas and rules.
+
+  Returns one report per loaded rule set (see `AshAgentTools.Rules.describe/1`
+  for the shape): revisions, combining algorithm, content hash, fact schema,
+  and rules. Discovery never raises; an empty list means no rule set modules
+  are loaded — or the optional `ash_rules` dep is absent (check
+  `availability/0`). The DSL-level view of the same facts is searchable:
+  fact schema entities appear as kind `rules_fact_schema` in
+  `semantic_search/2` and resolve via name paths like
+  `Module/rules_fact_schema/status`.
+
+  ## Examples
+
+      iex> kyc = Enum.find(AshAgentTools.rule_sets(), &(&1.module == AshAgentTools.Test.RuleSets.KYC))
+      iex> {kyc.combining, length(kyc.rules), is_binary(kyc.content_hash)}
+      {:deny_overrides, 2, true}
+
+  """
+  @spec rule_sets() :: [map()]
+  def rule_sets, do: AshAgentTools.Rules.list_rule_sets()
+
+  @doc """
+  Dry-evaluates a rule set against fact triples you provide — pure
+  evaluation, zero host state.
+
+  Accepts a rule set module or a bundle JSON document path, and
+  `{subject, predicate, value}` triples (JSON spellings accepted). Returns
+  the full result projected JSON-safe: `overall`, per-rule `requirements`
+  (outcomes with provenance: consumed/probed/missing facts), and the
+  aggregate `missing_facts`. Nothing is read from the host's data layer and
+  nothing is persisted. See `AshAgentTools.Rules.evaluate/3`.
+
+  ## Examples
+
+      iex> facts = [{"customer", "status", "active"}, {"customer", "jurisdiction", "regulated"}, {"customer", "has_valid_kyc", false}]
+      iex> report = AshAgentTools.evaluate_rules(AshAgentTools.Test.RuleSets.KYC, facts)
+      iex> report.overall
+      :noncompliant
+
+      iex> facts = [{"customer", "status", "active"}, {"customer", "jurisdiction", "regulated"}, {"customer", "has_valid_kyc", false}]
+      iex> report = AshAgentTools.evaluate_rules(AshAgentTools.Test.RuleSets.KYC, facts)
+      iex> finding = Enum.find(report.requirements, &(&1.rule_id == "kyc.valid_required"))
+      iex> {finding.outcome, finding.gap}
+      {:noncompliant, "kyc.valid_required"}
+
+      iex> facts = [{"customer", "status", "active"}, {"customer", "jurisdiction", "regulated"}]
+      iex> report = AshAgentTools.evaluate_rules(AshAgentTools.Test.RuleSets.KYC, facts)
+      iex> finding = Enum.find(report.requirements, &(&1.rule_id == "kyc.valid_required"))
+      iex> finding.outcome
+      :unknown
+
+  """
+  @spec evaluate_rules(module() | String.t(), list(), keyword()) :: map()
+  def evaluate_rules(module_or_path, facts, opts \\ []),
+    do: AshAgentTools.Rules.evaluate(module_or_path, facts, opts)
+
+  @doc """
+  Describes a resource's `AshStateMachine` states and transitions — with
+  Mermaid diagrams.
+
+  Returns `states`, `initial_states`, `default_initial_state`,
+  `state_attribute`, every `transition` (`action`/`from`/`to`, wildcards
+  verbatim), and the extension's own `mermaid` renderings
+  (`stateDiagram-v2` and `flowchart TD` strings). Pure projection of the
+  compiled DSL state; nothing transitions. Raises `ArgumentError` for
+  non-resources and resources without the `state_machine` section; when the
+  optional `ash_state_machine` dep is absent, the structured "add the dep"
+  error (check `availability/0`). See `AshAgentTools.Transitions.transitions/2`.
+
+  ## Examples
+
+      iex> report = AshAgentTools.transitions(AshAgentTools.Test.Machine)
+      iex> {report.initial_states, report.default_initial_state, report.state_attribute}
+      {[:pending], :pending, :state}
+
+      iex> report = AshAgentTools.transitions(AshAgentTools.Test.Machine)
+      iex> Enum.find(report.transitions, &(&1.action == :reject)).to
+      [:rejected, :cancelled]
+
+      iex> report = AshAgentTools.transitions(AshAgentTools.Test.Machine)
+      iex> String.contains?(report.mermaid.state_diagram, "pending --> confirmed: confirm")
+      true
+
+  """
+  @spec transitions(module(), keyword()) :: map()
+  def transitions(resource, opts \\ []), do: AshAgentTools.Transitions.transitions(resource, opts)
+
+  @doc """
+  Reports which optional concept integrations are active in this VM.
+
+  The optional-dep activation contract, made introspectable: one entry per
+  optional integration (`:ash_rules`, `:ash_state_machine`) with its
+  `active?` status, the dep to add, and the tools it unlocks. Never raises.
+
+  ## Examples
+
+      iex> integrations = AshAgentTools.availability().integrations
+      iex> Enum.map(integrations, & &1.integration)
+      [:ash_rules, :ash_state_machine]
+
+  """
+  @spec availability() :: map()
+  def availability, do: AshAgentTools.Availability.report()
 
   @doc """
   Searches attributes, actions, calculations, and relationships across all
@@ -407,7 +566,9 @@ defmodule AshAgentTools do
         AshAgentTools.describe_action(MyApp.Post, :create)    # input contract, return shape, code interfaces
         AshAgentTools.validate_input(MyApp.Post, :create, %{"title" => "Hi"})
                                                               # cast + validate WITHOUT running: %{valid?: ..., errors: [...], normalized_inputs: ...}
-        AshAgentTools.explain_forbidden(MyApp.Post, :create)  # policies that can deny the action (guidance; use Ash.can?/3 for verdicts)
+        AshAgentTools.explain_forbidden(MyApp.Post, :create)  # policies that can deny the action (static listing)
+        AshAgentTools.can(MyApp.Post, :approve, %{resource: MyApp.User, id: actor_id})
+                                                              # the actor-aware verdict WITHOUT running: %{allowed: ..., verdict: ..., per_policy: [...]}
         AshAgentTools.semantic_search("tag")                  # symbol hits across resources: resource, kind, name, type, source
         AshAgentTools.diff_manifest("old.json", "new.json")   # semantic-manifest diff by stable symbol id
         AshAgentTools.context("lib/my_app/accounts/post.ex", 42)
@@ -416,6 +577,13 @@ defmodule AshAgentTools do
         AshAgentTools.resolve("MyApp.Post/actions/by_tag")    # name-path resolution: symbol, span, provenance, shape digest
                                                               # (edits: AshAgentTools.Edit.replace_entity_block/3 et al. — dry-run by default)
         AshAgentTools.judge_laws(source)                      # iron-law judge: violations vs the 26 laws, tiered definite/likely/review
+        AshAgentTools.availability()                          # which optional integrations are active (ash_rules, ash_state_machine)
+
+    Optional concept tooling (hosts add the dep, the tools activate):
+
+        AshAgentTools.rule_sets()                             # loaded AshRules rule sets: fact schemas, rules, content hashes
+        AshAgentTools.evaluate_rules(MyApp.Rules, facts)      # dry-evaluate a bundle against fact triples: overall + per-rule outcomes
+        AshAgentTools.transitions(MyApp.Order)                # states, transitions, and Mermaid diagrams for an AshStateMachine resource
 
     Runtime state (the other half of debugging — pair with a trace via
     trace_id): `AshAgentTools.Runtime.snapshot()`, `AshAgentTools.Runtime.top(20)`,

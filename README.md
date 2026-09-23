@@ -19,7 +19,9 @@ report = AshAgentTools.validate_input(MyApp.Post, :create, %{"title" => "Hi", "s
 report.valid?          #=> true
 report.normalized_inputs["score"]  #=> 7
 
-AshAgentTools.explain_forbidden(MyApp.Post, :create)
+AshAgentTools.explain_forbidden(MyApp.Post, :create)  # which policies could deny
+AshAgentTools.can(MyApp.Post, :approve, %{resource: MyApp.User, id: actor_id})
+                      #=> %{allowed: false, verdict: :forbidden, per_policy: [...], responsible: ...}
 
 AshAgentTools.semantic_search("tag")   #=> [%{resource: MyApp.Post, kind: :action, name: :by_tag, ...}]
 AshAgentTools.diff_manifest("old.json", "new.json")  #=> %{summary: %{added: 1, ...}, ...}
@@ -34,6 +36,12 @@ report = AshAgentTools.explain_trace(spans)  #=> errors innermost first,
 AshAgentTools.Runtime.top(20)          #=> the busiest processes, JSON-safe
 AshAgentTools.Runtime.tree("MyApp")    #=> your supervision tree
 AshAgentTools.Kaizen.attach()          #=> fold every tool miss into an ETS aggregate
+
+# optional concept tooling — hosts add the dep, the tools activate:
+AshAgentTools.availability()           #=> which integrations are active, and the dep to add
+AshAgentTools.rule_sets()              #=> AshRules bundles: fact schemas, rules, content hashes
+AshAgentTools.evaluate_rules(MyApp.Rules, facts)  #=> dry evaluation: overall + per-rule outcomes
+AshAgentTools.transitions(MyApp.Order) #=> states, transitions, and the Mermaid diagrams
 ```
 
 **Already attached to a running node?** Don't pay a mix boot per query —
@@ -49,12 +57,15 @@ mix ash_agent.describe MyApp.Post            # resource description
 mix ash_agent.describe MyApp.Post create     # action contract
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'
 mix ash_agent.validate MyApp.Post create '{"title": "Hi"}' --out report.json
+mix ash_agent.can MyApp.Order approve --actor MyApp.User:8e1c-...   # the verdict, no execution
 mix ash_agent.search tag                     # find symbols by name substring
 mix ash_agent.context lib/my_app/accounts/post.ex:42  # what lives at this position
 mix ash_agent.diff manifest-old.json manifest-new.json
 mix ash_agent.runtime snapshot               # also: top 20 | tree MyApp
 mix ash_agent.gaps                           # the kaizen tool-gap digest
 mix ash_agent.laws lib/foo_live.ex           # the iron-law judge (also: --code, --diff, stdin)
+mix ash_agent.rules                          # optional: AshRules bundles (also: --facts, --bundle)
+mix ash_agent.transitions MyApp.Order        # optional: states/transitions + Mermaid
 mix ash_agent.edit replace MyApp.Post/attributes/score \
   --body "attribute :score, :integer, allow_nil?: false"   # dry-run; add --write --expected-digest D to apply
 ```
@@ -96,6 +107,31 @@ Keeping the API plain has two more benefits:
 - **Authorization guidance** — `explain_forbidden/2` lists an action's
   policies (bypass flags, conditions, checks) in human-readable form via
   `Ash.Policy.Check.describe/2`, with hints for reasoning about them.
+- **Actor-aware verdicts** — `can/4` resolves an actor (a resource + id
+  spec, resolved with an unauthorized `Ash.get!/2`; `:none`; or the target
+  record itself), builds the very changeset/query an action run would
+  build, and evaluates the policies with `Ash.can/3` — **without executing
+  anything**. The evaluation runs with `run_queries?: false`, so
+  data-dependent checks surface as an honest `:maybe`; denials come with
+  the fact-backed `per_policy` breakdown (read from the fact set Ash
+  attaches to its forbidden errors, via the public
+  `Ash.Policy.Policy.evaluate/2` / `fetch_fact/2` /
+  `responsible_for_forbidden/2`) naming the policy that decided it.
+- **Optional concept tooling** — concept-specific capabilities arrive
+  behind *optional* dependencies: hosts add the dep, the tools activate
+  (`availability/0` reports which are active and the dep to add); without
+  a dep the tools answer with a structured "add this dep" error and
+  nothing fails at compile time:
+  - **`ash_rules`** (compliance rules as data): `rule_sets/0` lists loaded
+    rule bundles with fact schemas, rules, and content hashes;
+    `evaluate_rules/3` dry-evaluates a bundle (module or JSON document)
+    against fact triples you provide — the full `AshRules.Result`
+    (overall, per-rule outcomes with provenance, missing facts), zero host
+    state.
+  - **`ash_state_machine`** (resource state machines): `transitions/2`
+    projects states, transitions (`action`/`from`/`to`), initial states,
+    and the extension's own Mermaid `stateDiagram-v2` / `flowchart TD`
+    renderings.
 - **Symbol search** — `semantic_search/2` finds attributes, actions,
   calculations, and relationships across loaded resources by name substring
   (case-insensitive, optional kind filter), each hit with its normalized
@@ -167,8 +203,9 @@ Keeping the API plain has two more benefits:
 - **MCP daemon** — `mix ash_agent.serve` starts a supervised, loopback-only
   MCP server (POST-only JSON-RPC over HTTP on `127.0.0.1:4100`, stateless,
   no sessions, no SSE) that exposes the facade as tools: `ash_describe`,
-  `ash_validate`, `ash_search`, `ash_context`, `ash_forbidden`,
-  `ash_daemon_status`, and `ash_reload`. Same compile-only boot contract as
+  `ash_validate`, `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`,
+  `ash_rules`, `ash_transitions`, `ash_daemon_status`, and `ash_reload`.
+  Same compile-only boot contract as
   the tasks — the mix boot is paid once at daemon start, every tool call is
   an in-memory read — plus a debounced `lib/`/`config/` file watcher that
   recompiles and invalidates caches behind a serialized reload mutex. Add a
@@ -205,7 +242,12 @@ Ash (`~> 3.0`) is the only runtime dependency besides `jason`,
 pure Elixir, and already in most Ash projects' graphs via igniter). The
 BEAM runtime tools use observer_cli 2.0 (+ recon) when the **host
 application** ships them — both are optional, dev-only, and never pulled in
-by this package; without them the built-in backends answer.
+by this package; without them the built-in backends answer. The same holds
+for the **concept tooling**: `ash_rules` (GitHub:
+`lukegalea/ash_rules`) and `ash_state_machine` (hex, `~> 0.2.13`) are
+optional — add the dep in your app and the rules/transitions tools
+activate; omit it and they answer with a structured install hint while
+this package keeps compiling with zero extra dependencies.
 
 ## Usage rules for agents
 
@@ -219,8 +261,10 @@ rules land in your `AGENTS.md` automatically.
 - Discovery sees **loaded** modules; the Mix tasks handle loading for you.
 - Validation reports input-level problems only — authorization, uniqueness,
   and actor-dependent validations surface when an action actually runs.
-- `explain_forbidden/2` is a guidance stub, not an evaluator; use `Ash.can?/3`
-  for real verdicts.
+- `can/4` evaluates policies, not the action: nothing executes, and with
+  `run_queries?: false` checks that would need a data-layer round-trip
+  come back as `:maybe` rather than a guess. `explain_forbidden/2` remains
+  the static listing — the two are designed to be read together.
 - `context/3` positions symbols via Spark annotations; modules compiled
   without debug info carry none, so their files cannot be matched (the
   report comes back `module: null`, `match: null`).

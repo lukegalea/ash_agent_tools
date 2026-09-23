@@ -134,6 +134,114 @@ defmodule AshAgentTools.Mcp.ToolsTest do
     end
   end
 
+  describe "ash_can" do
+    test "answers an anonymous verdict without executing anything" do
+      {:ok, report} =
+        Tools.call("ash_can", %{"resource" => "AshAgentTools.Test.Guarded", "action" => "create"})
+
+      assert report.allowed == false
+      assert report.verdict == :forbidden
+      assert report.actor.kind == :none
+    end
+
+    test "accepts the MODULE:ID actor spelling" do
+      {:ok, admin} = create_user!(%{admin: true})
+
+      {:ok, report} =
+        Tools.call("ash_can", %{
+          "resource" => "AshAgentTools.Test.User",
+          "action" => "update",
+          "actor" => "AshAgentTools.Test.User:#{admin.id}"
+        })
+
+      assert {report.allowed, report.verdict} == {true, :allowed}
+    end
+
+    test "accepts the object actor spelling" do
+      {:ok, user} = create_user!(%{})
+
+      {:ok, report} =
+        Tools.call("ash_can", %{
+          "resource" => "AshAgentTools.Test.User",
+          "action" => "update",
+          "actor" => %{"resource" => "AshAgentTools.Test.User", "id" => user.id}
+        })
+
+      assert report.allowed == false
+      assert report.responsible.reason == :unknown
+    end
+
+    test "a malformed actor spec is a structured error" do
+      {:error, error} =
+        Tools.call("ash_can", %{
+          "resource" => "AshAgentTools.Test.User",
+          "action" => "update",
+          "actor" => 42
+        })
+
+      assert error.error =~ "actor must be"
+    end
+
+    defp create_user!(params) do
+      AshAgentTools.Test.User
+      |> Ash.Changeset.for_create(:create, params)
+      |> Ash.create(authorize?: false)
+    end
+  end
+
+  describe "ash_rules" do
+    test "no arguments lists the loaded rule sets" do
+      {:ok, rule_sets} = Tools.call("ash_rules", %{})
+
+      assert Enum.any?(rule_sets, &(&1.module == AshAgentTools.Test.RuleSets.KYC))
+    end
+
+    test "a module argument describes one rule set" do
+      {:ok, report} = Tools.call("ash_rules", %{"module" => "AshAgentTools.Test.RuleSets.KYC"})
+
+      assert report.combining == :deny_overrides
+      assert length(report.rules) == 2
+    end
+
+    test "module + facts dry-evaluates the bundle" do
+      {:ok, report} =
+        Tools.call("ash_rules", %{
+          "module" => "AshAgentTools.Test.RuleSets.KYC",
+          "facts" => [
+            %{"subject" => "customer", "predicate" => "status", "value" => "active"},
+            %{"subject" => "customer", "predicate" => "jurisdiction", "value" => "regulated"},
+            %{"subject" => "customer", "predicate" => "has_valid_kyc", "value" => false}
+          ]
+        })
+
+      assert report.overall == :noncompliant
+    end
+
+    test "an invalid bundle module is a structured error" do
+      {:error, error} = Tools.call("ash_rules", %{"module" => "AshAgentTools.Test.Post"})
+
+      assert error.error =~ "not a loaded AshRules rule set"
+    end
+  end
+
+  describe "ash_transitions" do
+    test "describes a state-machine resource with diagrams" do
+      {:ok, report} =
+        Tools.call("ash_transitions", %{"resource" => "AshAgentTools.Test.Machine"})
+
+      assert report.state_attribute == :state
+      assert length(report.transitions) == 3
+      assert report.mermaid.state_diagram =~ "stateDiagram-v2"
+    end
+
+    test "a non-state-machine resource is a structured error" do
+      {:error, error} =
+        Tools.call("ash_transitions", %{"resource" => "AshAgentTools.Test.Post"})
+
+      assert error.error =~ "does not use AshStateMachine"
+    end
+  end
+
   describe "daemon-only tools without a running daemon" do
     test "ash_daemon_status reports the absent runtime honestly" do
       {:ok, status} = Tools.call("ash_daemon_status", %{})

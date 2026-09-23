@@ -3,11 +3,15 @@
 AshAgentTools is a read-only introspection layer over Ash. It answers an
 agent's questions about a project's domains, resources, and actions as plain
 JSON-encodable maps, validates action inputs without running anything, lists
-the policies that can forbid an action, searches symbol names across
+the policies that can forbid an action and — with an actor — evaluates them
+into a verdict, searches symbol names across
 resources, describes the Ash context at any source file position, diffs
 semantic-manifest documents, judges code against the codified 26 iron laws,
 and tells you how to use all of that in-VM
-without a mix boot. It ships as **regular library code plus this file** —
+without a mix boot. Concept-specific capabilities (compliance rules, state
+machines) ride behind optional dependencies: hosts add the dep, the tools
+activate; absent deps get structured install hints, never crashes. It ships
+as **regular library code plus this file** —
 deliberately *not* as registered MCP tools or any other tool-surface
 integration, which keeps it usable from `project_eval`, Livebook, Mix tasks,
 or any future hosted tool-definition API. Read these rules before using it;
@@ -38,9 +42,9 @@ do not assume prior knowledge of the API.
    returns `%{valid?, errors, normalized_inputs, expected}`. Check
    `report.valid?` (the report itself is always returned, never raised).
 4. **If forbidden**: `explain_forbidden/2` lists the resource's policies in
-   human-readable form plus general guidance. It is a guidance stub, not an
-   evaluator — get real verdicts from `Ash.can?/3` or the generated
-   `can_<action>?` interfaces.
+   human-readable form plus general guidance — the static, actor-free view
+   of *what could deny you*. For an actual verdict with a concrete actor,
+   use `can/4` next (see the authorization section below).
 5. **Lost the full name?** `semantic_search/2` finds attributes, actions,
    calculations, and relationships across loaded resources by name substring
    (case-insensitive; optional `kinds:` filter), each hit with its declaring
@@ -85,6 +89,46 @@ do not assume prior knowledge of the API.
 Compose these freely: the typical loop is describe → validate → execute →
 on `Forbidden`, explain_forbidden → adjust inputs or actor.
 
+## Authorization: listing, then verdict
+
+The two authorization tools answer different questions, in order:
+
+1. **"What could deny me?"** — `explain_forbidden/2` lists every policy and
+   field policy (bypass flags, conditions, checks, human-readable via
+   `Ash.Policy.Check.describe/2`) plus general hints on Ash's policy
+   semantics. No actor needed; nothing evaluated.
+2. **"Would THIS actor be denied?"** — `can/4` resolves the actor, builds
+   the very changeset/query an action run would build (params optional),
+   and evaluates the policies with `Ash.can/3`. **Nothing executes**: no
+   action runs, nothing is written, and the evaluation itself runs with
+   `run_queries?: false` — policy checks that would need a data-layer
+   round-trip come back as `verdict: :maybe` instead of a guess.
+
+The actor is one of: `:none`/`nil` (anonymous), `%{resource: MyApp.User,
+id: id}` (string keys accepted; the record is resolved with
+`Ash.get!/2` and `authorize?: false` — the one deliberate, unauthorized
+data-layer read), `:record` (the action's own target record acts), or an
+already-resolved actor struct. Update/destroy targets: pass `record:` (an
+id or record) or the resolved actor record is used.
+
+Read the report in this order: `allowed` (the boolean to gate on), then
+`verdict` (`:allowed` / `:forbidden` / the honest `:maybe`), then — on a
+denial — `responsible` (the non-bypass policy
+`Ash.Policy.Policy.responsible_for_forbidden/2` holds accountable) and
+`per_policy` (each policy's condition applicability, per-check facts, and
+computed decision, read from the fact set Ash attaches to its forbidden
+errors). `input_valid?` tells you whether the subject itself was well
+formed; `policies`/`field_policies`/`guidance` mirror
+`explain_forbidden/2` so one call has the whole picture.
+
+```elixir
+report = AshAgentTools.can(MyApp.Post, :approve, %{resource: MyApp.User, id: actor_id})
+report.allowed         #=> false
+report.verdict         #=> :forbidden
+report.responsible.reason   #=> :unknown (nothing authorized — deny-by-default)
+report.responsible.checks   #=> [%{description: "actor.admin == true", fact: false, ...}]
+```
+
 ## Prefer in-VM calls over mix boots
 
 A per-query `mix` boot costs seconds to minutes (cold compile, dependency
@@ -121,6 +165,9 @@ For agents without code execution:
 - `mix ash_agent.describe MyApp.Post create` — action description
 - `mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'` — validation
   report
+- `mix ash_agent.can MyApp.Order approve --actor MyApp.User:8e1c-...` — the
+  actor-aware policy verdict as JSON (also `--actor none`, `--actor record`,
+  `--record ID`, optional JSON params); nothing executes
 - `mix ash_agent.search TERM [--kind KIND]...` — symbol search across loaded
   resources; prints `{"query","kinds","count","results"}`
 - `mix ash_agent.context lib/my_app/accounts/post.ex:42` — the resource,
@@ -141,6 +188,12 @@ For agents without code execution:
   — the iron-law judge: violations of the 26 laws as JSON (`--law ID`
   restricts; `-` reads stdin). No boot at all — pure text processing. With
   no arguments it prints the law registry.
+- `mix ash_agent.rules [MODULE] [--facts JSON | --bundle FILE --facts JSON]`
+  — the optional `ash_rules` tooling: list loaded rule bundles, describe
+  one, or **dry-evaluate** a bundle against fact triples (see the optional
+  tooling section below)
+- `mix ash_agent.transitions RESOURCE [--no-mermaid]` — the optional
+  `ash_state_machine` tooling: states, transitions, and Mermaid diagrams
 - `mix ash_agent.serve [--port N] [--no-watch]` — the supervised MCP
   daemon (see the next section). Same compile-only boot contract as the
   other introspection tasks; the application is never started.
@@ -178,8 +231,9 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
 ```
 
 - **Tools:** `ash_describe` (no args → discovery summary), `ash_validate`,
-  `ash_search`, `ash_context`, `ash_forbidden`, `ash_daemon_status`,
-  `ash_reload`. All read-only — same contract as the facade. There is no
+  `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`, `ash_rules`,
+  `ash_transitions`, `ash_daemon_status`, `ash_reload`. All read-only —
+  same contract as the facade. There is no
   edit tool on the daemon: write paths stay in `mix ash_agent.edit` and
   your edit tools.
 - **Boot contract holds:** the daemon compiles the project and loads the
@@ -203,6 +257,62 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
   once instead of per call. Single-question sessions are fine with the
   tasks. Prefer in-VM calls (above) when you are already attached to a
   running node.
+
+## Optional concept tooling (the activation contract)
+
+Some capabilities are concept-specific (compliance rules, state machines).
+They ship behind **optional dependencies** so hosts that do not need the
+concept pay nothing:
+
+- **`ash_rules`** — compliance rules as data (fact schemas, rule bundles,
+  dry evaluation). GitHub dep: `{:ash_rules, github: "lukegalea/ash_rules"}`.
+- **`ash_state_machine`** — resource state machines. Hex dep:
+  `{:ash_state_machine, "~> 0.2.13"}`.
+
+The contract, in both directions:
+
+- **Add the dep → the tools activate.** Nothing to configure; the tools
+  detect the integration through `Code.ensure_loaded?/1` (the module is
+  loaded exactly when your app ships the dep). `AshAgentTools.availability/0`
+  reports the live status per integration: `active?`, the `dep` to add,
+  and the `tools` it unlocks. Check it first when unsure why a tool is
+  unavailable.
+- **No dep → structured error, never a crash.** The tools answer with a
+  pointed `ArgumentError` ("ash_rules tooling is not available: add
+  {:ash_rules, github: ...} to your deps to use this") that the MCP
+  daemon and Mix tasks turn into their structured JSON errors. Nothing
+  here raises at compile time: every optional integration is behind
+  conditional compilation, so this package builds cleanly with or
+  without any of them.
+
+When active:
+
+- **Rules** (`AshAgentTools.rule_sets/0`, `evaluate_rules/3`,
+  `AshAgentTools.Rules`): listing reads the compiled, content-hashed
+  `AshRules.Ir.Bundle` (`AshRules.Info.bundle/1`) — revisions, combining
+  algorithm, content hash, fact schema (with absence semantics:
+  `missing: :unknown` etc.), and rules with their predicates. Evaluation
+  is **dry and pure**: a bundle (module or JSON document path) plus fact
+  triples you provide → the full result (`overall`, per-rule `requirements`
+  with consumed/probed/missing facts, aggregate `missing_facts`). Zero
+  host state: no data layer is read, nothing is persisted. Absence
+  semantics are honored — a rule probing an `:unknown` fact is `:unknown`,
+  never silently compliant; read `overall` before any `compliant`.
+  String subjects/predicates from JSON are matched to the bundle's own
+  atoms (existing-atom conversion only). The DSL-level view of the same
+  rule sets is searchable: fact schema entities appear as kind
+  `rules_fact_schema` in `semantic_search/2` and resolve via name paths
+  like `MyApp.Rules/rules_fact_schema/status` — use that to find fact
+  names, and the rules tool to see them in rule context.
+- **Transitions** (`AshAgentTools.transitions/2`,
+  `AshAgentTools.Transitions`): projects the compiled `state_machine`
+  section — `states` (wildcards expanded), `initial_states`,
+  `default_initial_state`, `state_attribute`, and every `transition`
+  (`action`/`from`/`to`, `:*` passed through verbatim) — plus the
+  extension's own Mermaid renderings (`mermaid.state_diagram` as
+  `stateDiagram-v2`, `mermaid.flowchart` as `flowchart TD`), ready to
+  paste into docs. A resource without the section gets a structured error
+  naming the resource — the same path as an unknown action.
 
 ## Output conventions
 
@@ -258,7 +368,9 @@ says which. Echo `trace_id:`/`correlation_id:` to join the planes.
 
 **The kaizen loop** turns tool failures into signal. Every miss emits
 `[:ash_agent, :tool_gap]` telemetry (`tool`, `gap_kind`, `question`,
-`detail` with `did_you_mean` candidates). Hosts can attach any `:telemetry`
+`detail` with `did_you_mean` candidates) — unknown inputs, search misses,
+context misses, and `can`'s unresolvable actor records
+(`actor_resolve_miss`) among them. Hosts can attach any `:telemetry`
 handler; the built-in dev sink is one call:
 
 ```elixir
@@ -379,9 +491,13 @@ pattern's certainty — judge context (the compile-time-constant
   keys, unknown keys, build-time errors). It cannot predict
   context-dependent failures (authorization, uniqueness checks, custom
   validations that need an actor) — those only surface when an action
-  actually runs.
+  actually runs. Use `can/4` for the authorization half of that question.
 - `explain_forbidden/2` requires `Ash.Policy.Authorizer` for policy
   listings; resources with other authorizers get a pointer instead.
+- `can/4` answers for the input you give it, with `run_queries?: false`:
+  checks that need data-layer access stay `:maybe` (the report says so),
+  and a record-dependent strict check may need the `record:` option to
+  become decidable. It never executes the action and never writes.
 - `context/3` positions symbols via Spark annotations; modules compiled
   without debug info carry no annotations, so their symbols cannot be
   positioned (the module still cannot be matched by file) and the report

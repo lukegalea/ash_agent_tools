@@ -47,7 +47,13 @@ defmodule AshAgentTools.Registry do
     module |> Module.split() |> Enum.join(".")
   end
 
-  defp loaded_modules_matching(predicate) do
+  @doc false
+  # The loaded-modules scan behind `list_domains/0` and `list_resources/0`:
+  # callers pass the DSL-identity predicate (`spark_is/0` checks); discovery
+  # of optional-integration modules (rule set `__bundle__/0`) reuses the same
+  # scan with its own predicate.
+  @spec loaded_modules_matching((module() -> boolean())) :: [module()]
+  def loaded_modules_matching(predicate) do
     :code.all_loaded()
     |> Enum.map(&elem(&1, 0))
     |> Enum.uniq()

@@ -892,6 +892,7 @@ defmodule AshAgentToolsTest do
             "AshAgentTools.describe_action(",
             "AshAgentTools.validate_input(",
             "AshAgentTools.explain_forbidden(",
+            "AshAgentTools.can(",
             "AshAgentTools.semantic_search(",
             "AshAgentTools.diff_manifest(",
             "AshAgentTools.context(",
@@ -901,6 +902,10 @@ defmodule AshAgentToolsTest do
             "AshAgentTools.Runtime.tree(\"MyApp\")",
             "AshAgentTools.Kaizen.attach()",
             "AshAgentTools.Kaizen.digest()",
+            "AshAgentTools.availability()",
+            "AshAgentTools.rule_sets()",
+            "AshAgentTools.evaluate_rules(",
+            "AshAgentTools.transitions(",
             "AshAgentTools.Registry"
           ] do
         assert String.contains?(docs, snippet)

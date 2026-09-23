@@ -46,7 +46,9 @@ defmodule AshAgentTools.NamePathTest do
     end
 
     test "unknown modules raise with did_you_mean" do
-      assert_raise ArgumentError, ~r/did you mean: \["Post"\]/, fn ->
+      # User joined the loaded set, so it joined the candidates — Post stays
+      # the closest match and comes first.
+      assert_raise ArgumentError, ~r/did you mean: \["Post", "User"\]/, fn ->
         AshAgentTools.resolve("Pst/actions/read")
       end
     end

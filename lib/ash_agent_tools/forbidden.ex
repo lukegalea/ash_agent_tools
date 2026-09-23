@@ -6,12 +6,14 @@ defmodule AshAgentTools.Forbidden do
   @moduledoc """
   Explains what can forbid an action: a policy listing with general guidance.
 
-  This is intentionally a *guidance stub*, not an authorization evaluator.
-  Determining an actual verdict requires an actor and a query/changeset —
-  use `Ash.can?/3` (or the generated `can_*?` code interfaces) for that.
-  What agents usually need after a `Forbidden` error is to see *which rules
-  exist*, which this module reports in human-readable form via
-  `Ash.Policy.Check.describe/2`.
+  This module lists *which rules exist* — the static, actor-free view an
+  agent needs after (or before) a `Forbidden` error — in human-readable form
+  via `Ash.Policy.Check.describe/2`. For an actual verdict with an actor in
+  hand, use `AshAgentTools.Can.can/5` (facade: `AshAgentTools.can/4`), which
+  evaluates the policies with `Ash.can/3` — still without executing
+  anything — and adds the fact-backed per-policy breakdown to this same
+  listing. The two tools are designed to be read together: this one answers
+  "what could deny me?", `can/4` answers "would this actor be denied?".
   """
 
   alias AshAgentTools.Describe
@@ -23,7 +25,8 @@ defmodule AshAgentTools.Forbidden do
 
   `action_name` is optional; it is echoed into the report for context. The
   report is a plain, JSON-encodable map. Resources without the
-  `Ash.Policy.Authorizer` return `policies: []` with a note.
+  `Ash.Policy.Authorizer` return `policies: []` with a note. For a verdict
+  with a concrete actor, see `AshAgentTools.Can.can/5`.
   """
   @spec explain_forbidden(module(), atom() | String.t() | nil) :: map()
   def explain_forbidden(resource, action_name \\ nil) do
@@ -77,24 +80,27 @@ defmodule AshAgentTools.Forbidden do
 
   # Condition/check entries are `%Ash.Policy.Check{}` structs (from `condition`
   # blocks) or `{module, opts}` / `module` refs (from policy-group
-  # conditions); normalize all shapes.
-  defp describe_check(%Ash.Policy.Check{} = check) do
+  # conditions); normalize all shapes. Shared with `AshAgentTools.Can`, so
+  # both tools describe a policy identically.
+  @doc false
+  @spec describe_check(term()) :: String.t()
+  def describe_check(%Ash.Policy.Check{} = check) do
     Ash.Policy.Check.describe(check.check_module, check.check_opts || [])
   rescue
     _ -> "#{Registry.module_name(check.check_module)} (description unavailable)"
   end
 
-  defp describe_check({module, opts}) do
+  def describe_check({module, opts}) do
     Ash.Policy.Check.describe(module, opts || [])
   rescue
     _ -> "#{Registry.module_name(module)} (description unavailable)"
   end
 
-  defp describe_check(module) when is_atom(module) do
+  def describe_check(module) when is_atom(module) do
     describe_check({module, []})
   end
 
-  defp describe_check(other), do: inspect(other)
+  def describe_check(other), do: inspect(other)
 
   defp guidance(_resource, true = _policy_authorizer?) do
     [
@@ -107,8 +113,9 @@ defmodule AshAgentTools.Forbidden do
         "access regardless of the other policies — typically reserved for admins.",
       "Filter checks (:filter access type) scope the query instead of erroring: an unexpectedly " <>
         "empty result may mean the action was filtered rather than explicitly forbidden.",
-      "To test a verdict, use Ash.can?/3 (or the generated can_<action>? code interface) with the " <>
-        "intended actor rather than reasoning from the policy text alone."
+      "For an actual verdict, use AshAgentTools.can/4 (Ash.can/3 under the hood) with the " <>
+        "intended actor — it evaluates these policies without executing anything and reports " <>
+        "which checks decided the outcome."
     ]
   end
 

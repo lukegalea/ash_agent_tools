@@ -13,7 +13,10 @@
   AshAgentTools.Test.Guarded,
   AshAgentTools.Test.ContextProbe,
   AshAgentTools.Test.ProbeDsl,
-  AshAgentTools.Test.Probed
+  AshAgentTools.Test.Probed,
+  AshAgentTools.Test.User,
+  AshAgentTools.Test.Machine,
+  AshAgentTools.Test.RuleSets.KYC
 ]
 |> Enum.each(&Code.ensure_loaded!/1)
 
