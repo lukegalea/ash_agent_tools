@@ -101,6 +101,11 @@ defmodule AshAgentTools.Mcp.PlugTest do
                "ash_forbidden",
                "ash_rules",
                "ash_transitions",
+               "ash_processes",
+               "ash_process_graph",
+               "ash_process_instance",
+               "ash_decisions",
+               "ash_decision_evaluate",
                "ash_daemon_status",
                "ash_reload"
              ]

@@ -24,7 +24,8 @@ defmodule AshAgentTools.Availability do
   unlocks.
   """
 
-  @type integration :: :ash_rules | :ash_state_machine
+  @type integration ::
+          :ash_rules | :ash_state_machine | :ash_bpmn | :ash_decisions
 
   @integrations [
     %{
@@ -40,6 +41,20 @@ defmodule AshAgentTools.Availability do
       dep: ~s({:ash_state_machine, "~> 0.2.13"}),
       tools: [:transitions],
       concept: "resource state machines: states, transitions, Mermaid diagrams"
+    },
+    %{
+      integration: :ash_bpmn,
+      module: AshBpmn,
+      dep: ~s({:ash_bpmn, github: "lukegalea/ash_bpmn"}),
+      tools: [:processes, :process_graph, :process_instance],
+      concept: "BPMN process engine: definitions, graphs, in-flight instances and tasks"
+    },
+    %{
+      integration: :ash_decisions,
+      module: AshDecisions,
+      dep: ~s({:ash_decisions, github: "lukegalea/ash_decisions"}),
+      tools: [:decisions, :decision_evaluate],
+      concept: "DMN decisions: catalogues, stored verification, dry evaluation"
     }
   ]
 

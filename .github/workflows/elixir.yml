@@ -35,14 +35,32 @@ jobs:
   test:
     name: mix test
     runs-on: ubuntu-latest
+    # The BPMN/decision tooling tests run the real ash_bpmn/ash_decisions
+    # resource macros, which are AshPostgres by construction, against a
+    # sandboxed TestRepo. Everything else in the suite needs no database.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+          PGTZ: UTC
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-elixir
         with:
           deps-token: ${{ secrets.PRIVATE_DEPS_TOKEN }}
-      # The suite is pure in-process Ash introspection (test/support resources
-      # with simple_sat; no repo, no database), so there is no postgres
-      # service here.
+      # The DMN compiler shells out to `xmllint` (boxic_dmn validates DMN
+      # documents against the normative XSD through it). Without it on PATH
+      # every decision fixture fails to load.
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mix test
 
   compile-test:

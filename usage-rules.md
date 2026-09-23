@@ -194,6 +194,16 @@ For agents without code execution:
   tooling section below)
 - `mix ash_agent.transitions RESOURCE [--no-mermaid]` — the optional
   `ash_state_machine` tooling: states, transitions, and Mermaid diagrams
+- `mix ash_agent.processes [DOMAIN] [--key K]` — the optional `ash_bpmn`
+  tooling: definitions per key
+- `mix ash_agent.graph KEY [--version N] [--draft] [--no-elements]` — one
+  definition's compiled graph + element digests
+- `mix ash_agent.instance [--instance-id ID | --subject TYPE:ID] [--key K]`
+  — in-flight instances, tokens, and open tasks (read-only)
+- `mix ash_agent.decisions [DOMAIN] [--key K] [--graph] [--verification]`
+  — the optional `ash_decisions` catalogue
+- `mix ash_agent.evaluate KEY JSON_INPUTS [--decision NAME] [--version N]`
+  — dry evaluation; records nothing
 - `mix ash_agent.serve [--port N] [--no-watch]` — the supervised MCP
   daemon (see the next section). Same compile-only boot contract as the
   other introspection tasks; the application is never started.
@@ -268,6 +278,10 @@ concept pay nothing:
   dry evaluation). GitHub dep: `{:ash_rules, github: "lukegalea/ash_rules"}`.
 - **`ash_state_machine`** — resource state machines. Hex dep:
   `{:ash_state_machine, "~> 0.2.13"}`.
+- **`ash_bpmn`** — the BPMN process engine (definitions, graphs, in-flight
+  state). GitHub dep: `{:ash_bpmn, github: "lukegalea/ash_bpmn"}`.
+- **`ash_decisions`** — the DMN decision engine (catalogue, dry
+  evaluation). GitHub dep: `{:ash_decisions, github: "lukegalea/ash_decisions"}`.
 
 The contract, in both directions:
 
@@ -313,6 +327,40 @@ When active:
   `stateDiagram-v2`, `mermaid.flowchart` as `flowchart TD`), ready to
   paste into docs. A resource without the section gets a structured error
   naming the resource — the same path as an unknown action.
+- **Processes** (`AshAgentTools.processes/2`, `process_graph/2`,
+  `process_instance/1`, `AshAgentTools.Bpmn`): the BPMN half. `processes`
+  aggregates definitions per key — representative version (the draft when
+  one exists, else the latest published), status, content hash, stored
+  error count, draft flag — and **never** returns the raw `xml`, which the
+  engine marks `sensitive?`. `process_graph` returns one definition's
+  compiled graph plus the per-element occupancy digests a migration
+  classification compares; an uncompiled draft renders its stored compile
+  `errors` instead of inventing an empty graph. `process_instance` is the
+  engine's own read-only export of what is in flight, plus each instance's
+  open human tasks with candidates. Three lines hold here:
+  - **Correlation keys are digested** unless `include_correlation_keys:
+    true` is explicitly requested — the privacy line `StateExport` draws,
+    kept opt-in.
+  - **Token positions are interpreted against the pinned definition**, and
+    each instance carries `definition_version` +
+    `definition_content_hash` — so "the process changed since this
+    started" is decidable, not a guess.
+  - **Nothing mutates.** No task is completed, no token advanced, no
+    instance cancelled: `complete_task` advances tokens and fires host
+    service actions downstream, and can never be a default. (A future
+    opt-in config could revisit that; today it does not exist.)
+- **Decisions** (`AshAgentTools.decisions/2`, `decision_evaluate/3`,
+  `AshAgentTools.Decisions`): the DMN half. `decisions` is the catalogue
+  projection per key — status, draft flag, latest published version, and
+  the decisions each document declares in document order; the stored
+  publish-time `verification` is available per request and is reported
+  **as stored** — a catalogue read has no business re-running the
+  Verifier. `decision_evaluate` is a **designer preview**:
+  `record: false` is hard-coded, so evaluating a decision here never
+  writes an `Evaluation` row — it answers a question about the model, not
+  about a case. Published by default; drafts only via `draft: true`,
+  because draft evaluation churns the engine's `persistent_term` model
+  cache for a document that can still change.
 
 ## Output conventions
 

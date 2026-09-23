@@ -198,8 +198,11 @@ defmodule AshAgentTools.KaizenTest do
     end
 
     test "search misses suggest the closest known symbol names" do
-      assert AshAgentTools.Search.did_you_mean("tgas") == ["tags", "read"]
-      assert AshAgentTools.Search.did_you_mean("scor") == ["score"]
+      # the bpmn fixtures joined the symbol index, so "task" (TaskCandidate's
+      # kind) became a candidate too
+      assert AshAgentTools.Search.did_you_mean("tgas") == ["tags", "task", "read"]
+      # the decision fixtures added an :error attribute, a distance-2 candidate
+      assert AshAgentTools.Search.did_you_mean("scor") == ["score", "error"]
 
       assert AshAgentTools.Search.did_you_mean("zzz-nothing-like-anything") == []
       assert AshAgentTools.Search.did_you_mean("") == []

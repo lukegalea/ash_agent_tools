@@ -5,7 +5,9 @@
 defmodule AshAgentToolsTest do
   use ExUnit.Case, async: true
 
-  doctest AshAgentTools
+  # processes/2 and decisions/2 read the database; their doctests run in
+  # the sandboxed BPMN/decision cases instead.
+  doctest AshAgentTools, except: [processes: 2, decisions: 2]
   doctest AshAgentTools.Context
   doctest AshAgentTools.Search
   doctest AshAgentTools.Types
@@ -500,7 +502,7 @@ defmodule AshAgentToolsTest do
     end
 
     test "results are sorted by resource, kind, name" do
-      results = AshAgentTools.semantic_search("t")
+      results = AshAgentTools.semantic_search("t", max_results: 1000)
 
       sorted =
         Enum.sort_by(
@@ -513,7 +515,7 @@ defmodule AshAgentToolsTest do
 
     test "no match is an empty list; results are JSON-encodable" do
       assert [] = AshAgentTools.semantic_search("no-such-symbol-xyz")
-      assert is_binary(Jason.encode!(AshAgentTools.semantic_search("t")))
+      assert is_binary(Jason.encode!(AshAgentTools.semantic_search("t", max_results: 1000)))
     end
   end
 

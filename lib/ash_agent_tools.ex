@@ -54,6 +54,13 @@ defmodule AshAgentTools do
       dry-evaluate a bundle against fact triples (zero host state)
     * `transitions/2` — optional `ash_state_machine` tooling: states,
       transitions, and Mermaid state diagrams for a state-machine resource
+    * `processes/2`, `process_graph/2`, `process_instance/1` — optional
+      `ash_bpmn` tooling: the host's process definitions and graphs, and
+      what is in flight (tokens, open human tasks) — read-only, correlation
+      keys digested unless asked
+    * `decisions/2`, `decision_evaluate/3` — optional `ash_decisions`
+      tooling: the decision catalogue and dry evaluation with `record:
+      false` hard-coded (never an Evaluation row)
     * `availability/0` — which optional integrations are active, and the
       dep to add for each (the optional-dep activation contract)
     * `eval_docs/0` — the exact snippets for using this API in-VM, without a
@@ -80,6 +87,11 @@ defmodule AshAgentTools do
   $ mix ash_agent.laws lib/foo.ex    # the iron-law judge (also: --code, --diff)
   $ mix ash_agent.rules              # optional ash_rules tooling (also: --facts)
   $ mix ash_agent.transitions MyApp.Order   # optional ash_state_machine tooling
+  $ mix ash_agent.processes          # optional ash_bpmn: definitions per key
+  $ mix ash_agent.graph order_flow   # also: --version N, --draft, --no-elements
+  $ mix ash_agent.instance --instance-id ID  # also: --subject TYPE:ID, --key K
+  $ mix ash_agent.decisions          # optional ash_decisions: the catalogue
+  $ mix ash_agent.evaluate surcharge '{"region": "international"}'
   ```
 
   See `usage-rules.md` at the package root for agent-oriented guidance.
@@ -339,6 +351,83 @@ defmodule AshAgentTools do
   def transitions(resource, opts \\ []), do: AshAgentTools.Transitions.transitions(resource, opts)
 
   @doc """
+  Lists the host's BPMN process definitions — the optional `ash_bpmn`
+  tooling.
+
+  Aggregates per `{domain, key}`: representative version, status, content
+  hash, draft flag, stored error count, and the latest published version.
+  The raw `xml` is never returned. Scans every loaded engine domain, or
+  only `domain:` when given; `key:` restricts to one process key. See
+  `AshAgentTools.Bpmn.processes/2`.
+
+  ## Examples
+
+      iex> report = AshAgentTools.processes()
+      iex> is_integer(report.count)
+      true
+
+  """
+  @spec processes(module() | String.t() | nil, keyword()) :: map()
+  def processes(domain \\ nil, opts \\ []), do: AshAgentTools.Bpmn.processes(domain, opts)
+
+  @doc """
+  One process definition's compiled graph — the optional `ash_bpmn`
+  tooling.
+
+  Resolves by `version:`, the key's draft (`draft: true`), or the latest
+  published version; returns the engine's graph (`nodes`, `flows`,
+  `joins`, `boundaries`, …) with per-element occupancy digests. An
+  uncompiled draft renders its stored compile `errors` instead. See
+  `AshAgentTools.Bpmn.process_graph/2`.
+  """
+  @spec process_graph(String.t() | atom(), keyword()) :: map()
+  def process_graph(key, opts \\ []), do: AshAgentTools.Bpmn.process_graph(key, opts)
+
+  @doc """
+  What is in flight right now — the optional `ash_bpmn` tooling.
+
+  Instances with their tokens (interpreted against the pinned definition)
+  plus open human tasks with candidates, by `instance_id:`,
+  `subject_type:`/`subject_id:`, or `definition_key:`. Correlation keys
+  stay digested unless `include_correlation_keys: true`. Read-only: no
+  task is completed, no token advanced. See `AshAgentTools.Bpmn.process_instance/1`.
+  """
+  @spec process_instance(keyword()) :: map()
+  def process_instance(opts \\ []), do: AshAgentTools.Bpmn.process_instance(opts)
+
+  @doc """
+  Lists the host's DMN decision definitions — the optional `ash_decisions`
+  tooling.
+
+  The `AshDecisions.Catalogue.entries/2` projection per key, with the
+  stored graph snapshot and publish-time `verification` available per
+  request (`graph: true` / `verification: true`). The Verifier is not
+  re-run. See `AshAgentTools.Decisions.decisions/2`.
+
+  ## Examples
+
+      iex> report = AshAgentTools.decisions()
+      iex> is_integer(report.count)
+      true
+
+  """
+  @spec decisions(module() | String.t() | nil, keyword()) :: map()
+  def decisions(domain \\ nil, opts \\ []), do: AshAgentTools.Decisions.decisions(domain, opts)
+
+  @doc """
+  Evaluates a decision against inputs — the optional `ash_decisions`
+  tooling.
+
+  A designer preview: `AshDecisions.Evaluator.evaluate/3` with
+  `record: false` hard-coded, so no `Evaluation` row is ever written.
+  Published by default; drafts only via `draft: true`. See
+  `AshAgentTools.Decisions.decision_evaluate/3`.
+  """
+  @spec decision_evaluate(String.t() | atom(), map(), keyword()) :: map()
+  def decision_evaluate(key, inputs, opts \\ []),
+    do: AshAgentTools.Decisions.decision_evaluate(key, inputs, opts)
+
+  @doc """
   Reports which optional concept integrations are active in this VM.
 
   The optional-dep activation contract, made introspectable: one entry per
@@ -347,9 +436,9 @@ defmodule AshAgentTools do
 
   ## Examples
 
-      iex> integrations = AshAgentTools.availability().integrations
-      iex> Enum.map(integrations, & &1.integration)
-      [:ash_rules, :ash_state_machine]
+      iex> report = AshAgentTools.availability()
+      iex> Enum.count(report.integrations)
+      4
 
   """
   @spec availability() :: map()
@@ -584,6 +673,11 @@ defmodule AshAgentTools do
         AshAgentTools.rule_sets()                             # loaded AshRules rule sets: fact schemas, rules, content hashes
         AshAgentTools.evaluate_rules(MyApp.Rules, facts)      # dry-evaluate a bundle against fact triples: overall + per-rule outcomes
         AshAgentTools.transitions(MyApp.Order)                # states, transitions, and Mermaid diagrams for an AshStateMachine resource
+        AshAgentTools.processes()                             # BPMN definitions per key: versions, drafts, content hashes
+        AshAgentTools.process_graph("order_flow")             # the compiled graph + element digests of one definition
+        AshAgentTools.process_instance(instance_id: id)       # in-flight: tokens, open human tasks, candidates (read-only)
+        AshAgentTools.decisions()                             # DMN catalogue: keys, drafts, declared decisions
+        AshAgentTools.decision_evaluate("surcharge", inputs)  # dry evaluation, record: false — never an Evaluation row
 
     Runtime state (the other half of debugging — pair with a trace via
     trace_id): `AshAgentTools.Runtime.snapshot()`, `AshAgentTools.Runtime.top(20)`,

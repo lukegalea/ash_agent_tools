@@ -81,17 +81,27 @@ defmodule AshAgentTools.MixProject do
       {:recon, "2.5.6", only: :dev, optional: true},
 
       # Optional concept tooling. Hosts add the dep, the tools activate
-      # (see AshAgentTools.Availability); without them the rules/transitions
-      # tools answer with a structured "add the dep" error and the package
-      # stays useful. Both are gated behind `Code.ensure_loaded?/1`
+      # (see AshAgentTools.Availability); without them the rules/transitions/
+      # bpmn/decisions tools answer with a structured "add the dep" error and
+      # the package stays useful. Both are gated behind `Code.ensure_loaded?/1`
       # conditional compilation (the Ecto-Jason pattern, as with the MCP
       # plug) so a host without either still compiles this package cleanly.
       #
-      # ash_rules (compliance rules as data — fact schemas + dry evaluation)
-      # lives on GitHub; ash_state_machine (states/transitions + Mermaid
-      # charts) is on hex.
+      # ash_rules (compliance rules as data — fact schemas + dry evaluation),
+      # ash_bpmn (BPMN process engine) and ash_decisions (DMN decisions) are
+      # GitHub deps.
       {:ash_rules, github: "lukegalea/ash_rules", optional: true},
       {:ash_state_machine, "~> 0.2.13", optional: true},
+      {:ash_bpmn, github: "lukegalea/ash_bpmn", optional: true},
+      {:ash_decisions, github: "lukegalea/ash_decisions", optional: true},
+
+      # Test workhorse: the ash_bpmn/ash_decisions resource macros are
+      # AshPostgres by construction (`repo:` is a required option), so the
+      # BPMN/decision tooling tests run against a real PostgreSQL through a
+      # sandboxed TestRepo. The library code itself never touches it.
+      # `optional:` (ash_bpmn requires it unconditionally, so it cannot be
+      # test-only) keeps it out of consumers' dependency graphs.
+      {:ash_postgres, "~> 2.13", optional: true},
 
       # Optional MCP-over-HTTP daemon (`mix ash_agent.serve`). All three are
       # `optional:` so hosts pay nothing unless they serve the daemon, and the

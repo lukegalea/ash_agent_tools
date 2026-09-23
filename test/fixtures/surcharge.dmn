@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>
+SPDX-License-Identifier: MIT
+-->
+<definitions xmlns="https://www.omg.org/spec/DMN/20230324/MODEL/"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             id="surcharge_definitions"
+             name="Surcharge"
+             namespace="https://github.com/lukegalea/ash_agent_tools/surcharge"
+             expressionLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/"
+             typeLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/">
+  <inputData id="input_region" name="region">
+    <variable id="var_region" name="region" typeRef="string"/>
+  </inputData>
+  <decision id="decision_surcharge" name="Surcharge">
+    <variable id="var_surcharge" name="Surcharge" typeRef="number"/>
+    <informationRequirement id="req_region">
+      <requiredInput href="#input_region"/>
+    </informationRequirement>
+    <decisionTable id="table_surcharge" hitPolicy="UNIQUE" outputLabel="Surcharge">
+      <input id="clause_region" label="Region">
+        <inputExpression id="expr_region" typeRef="string">
+          <text>region</text>
+        </inputExpression>
+      </input>
+      <output id="clause_surcharge" name="surcharge" label="Surcharge" typeRef="number"/>
+      <rule id="rule_intl">
+        <inputEntry id="rule_intl_0"><text>"international"</text></inputEntry>
+        <outputEntry id="rule_intl_1"><text>25</text></outputEntry>
+      </rule>
+      <rule id="rule_domestic">
+        <inputEntry id="rule_domestic_0"><text>"domestic"</text></inputEntry>
+        <outputEntry id="rule_domestic_1"><text>0</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -66,6 +66,11 @@ mix ash_agent.gaps                           # the kaizen tool-gap digest
 mix ash_agent.laws lib/foo_live.ex           # the iron-law judge (also: --code, --diff, stdin)
 mix ash_agent.rules                          # optional: AshRules bundles (also: --facts, --bundle)
 mix ash_agent.transitions MyApp.Order        # optional: states/transitions + Mermaid
+mix ash_agent.processes                      # optional: BPMN definitions per key
+mix ash_agent.graph access_request --version 2   # optional: one definition's graph + digests
+mix ash_agent.instance --key access_request  # optional: in-flight state (read-only)
+mix ash_agent.decisions                      # optional: the DMN catalogue
+mix ash_agent.evaluate surcharge '{"region": "international"}'  # optional: dry evaluation, records nothing
 mix ash_agent.edit replace MyApp.Post/attributes/score \
   --body "attribute :score, :integer, allow_nil?: false"   # dry-run; add --write --expected-digest D to apply
 ```
@@ -132,6 +137,27 @@ Keeping the API plain has two more benefits:
     projects states, transitions (`action`/`from`/`to`), initial states,
     and the extension's own Mermaid `stateDiagram-v2` / `flowchart TD`
     renderings.
+  - **`ash_bpmn`** (BPMN process engine): `processes/2` aggregates the
+    host's process definitions per key (versions, statuses, drafts, stored
+    error counts, content hashes — never the `sensitive?` xml);
+    `process_graph/2` returns one definition's compiled graph with
+    `AshBpmn.StateExport.elements/1` occupancy digests (an uncompiled draft
+    renders its stored compile errors instead); `process_instance/1` shows
+    what is in flight — tokens interpreted against the definition each
+    instance **pinned** (`definition_version` + `definition_content_hash`
+    so drift is decidable), plus open human tasks with their candidate
+    rows. Correlation keys stay digested unless explicitly requested, and
+    nothing mutates: no task is completed, no token advanced — those are
+    host mutations with downstream effects, deliberately outside this
+    toolset (a future opt-in config could revisit that).
+  - **`ash_decisions`** (DMN decisions): `decisions/2` is the
+    `AshDecisions.Catalogue.entries/2` projection — keys, drafts, the
+    decisions each document declares — with the stored publish-time
+    verification available per request (the Verifier is not re-run);
+    `decision_evaluate/3` evaluates a **published** decision against
+    inputs with `record: false` hard-coded — a designer preview that never
+    writes an `Evaluation` row. Draft evaluation sits behind an explicit
+    flag because it churns the engine's model cache.
 - **Symbol search** — `semantic_search/2` finds attributes, actions,
   calculations, and relationships across loaded resources by name substring
   (case-insensitive, optional kind filter), each hit with its normalized
@@ -204,7 +230,9 @@ Keeping the API plain has two more benefits:
   MCP server (POST-only JSON-RPC over HTTP on `127.0.0.1:4100`, stateless,
   no sessions, no SSE) that exposes the facade as tools: `ash_describe`,
   `ash_validate`, `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`,
-  `ash_rules`, `ash_transitions`, `ash_daemon_status`, and `ash_reload`.
+  `ash_rules`, `ash_transitions`, `ash_processes`, `ash_process_graph`,
+  `ash_process_instance`, `ash_decisions`, `ash_decision_evaluate`,
+  `ash_daemon_status`, and `ash_reload`.
   Same compile-only boot contract as
   the tasks — the mix boot is paid once at daemon start, every tool call is
   an in-memory read — plus a debounced `lib/`/`config/` file watcher that
@@ -243,11 +271,12 @@ pure Elixir, and already in most Ash projects' graphs via igniter). The
 BEAM runtime tools use observer_cli 2.0 (+ recon) when the **host
 application** ships them — both are optional, dev-only, and never pulled in
 by this package; without them the built-in backends answer. The same holds
-for the **concept tooling**: `ash_rules` (GitHub:
-`lukegalea/ash_rules`) and `ash_state_machine` (hex, `~> 0.2.13`) are
-optional — add the dep in your app and the rules/transitions tools
-activate; omit it and they answer with a structured install hint while
-this package keeps compiling with zero extra dependencies.
+for the **concept tooling**: `ash_rules`, `ash_bpmn` and `ash_decisions`
+(GitHub: `lukegalea/…`) and `ash_state_machine` (hex, `~> 0.2.13`) are
+optional — add the dep in your app and the rules/transitions/processes/
+decisions tools activate; omit one and those tools answer with a structured
+install hint while this package keeps compiling with zero forced
+dependencies.
 
 ## Usage rules for agents
 

@@ -21,6 +21,11 @@ defmodule AshAgentTools.Mcp.Tools do
   | `ash_forbidden` | `explain_forbidden/2` — the static policy listing |
   | `ash_rules` | `rule_sets/0` / `evaluate_rules/3` — optional `ash_rules` tooling |
   | `ash_transitions` | `transitions/2` — optional `ash_state_machine` tooling |
+  | `ash_processes` | `processes/2` — optional `ash_bpmn`: definitions per key |
+  | `ash_process_graph` | `process_graph/2` — one definition's compiled graph |
+  | `ash_process_instance` | `process_instance/1` — in-flight state, read-only |
+  | `ash_decisions` | `decisions/2` — optional `ash_decisions`: the catalogue |
+  | `ash_decision_evaluate` | `decision_evaluate/3` — dry evaluation, `record: false` |
   | `ash_daemon_status` | `AshAgentTools.Daemon.Runtime.status/1` |
   | `ash_reload` | `AshAgentTools.Daemon.Runtime.request_reload/2` |
 
@@ -207,6 +212,136 @@ defmodule AshAgentTools.Mcp.Tools do
         ["resource"]
       ),
       card(
+        "ash_processes",
+        "List BPMN process definitions per key (requires the optional " <>
+          "ash_bpmn dep; otherwise returns the structured install hint). " <>
+          "Per key: representative version, status, content hash, draft " <>
+          "flag, stored error count, latest published version. The raw xml " <>
+          "is never returned. Read-only.",
+        %{
+          "domain" => %{
+            type: "string",
+            description: "Domain module name. Omit to scan all engine domains."
+          },
+          "key" => %{type: "string", description: "Restrict to one process key."}
+        },
+        []
+      ),
+      card(
+        "ash_process_graph",
+        "One BPMN definition's compiled graph: nodes, flows, joins, " <>
+          "boundaries, plus per-element occupancy digests (requires the " <>
+          "optional ash_bpmn dep). An uncompiled draft renders its stored " <>
+          "compile errors instead of a graph. Read-only.",
+        %{
+          "key" => %{type: "string", description: "Process key."},
+          "version" => %{
+            type: "integer",
+            description: "Pin one version (default: latest published)."
+          },
+          "draft" => %{
+            type: "boolean",
+            description: "Look at the key's draft instead (default false)."
+          },
+          "domain" => %{type: "string", description: "Domain module name."},
+          "include_elements" => %{
+            type: "boolean",
+            description: "Include the per-element occupancy digests (default true)."
+          }
+        },
+        ["key"]
+      ),
+      card(
+        "ash_process_instance",
+        "What is in flight in the BPMN engine: instances, their tokens " <>
+          "(interpreted against the pinned definition), and open human tasks " <>
+          "with candidates. Correlation keys stay digested unless explicitly " <>
+          "requested. Read-only: nothing is completed or advanced (requires " <>
+          "the optional ash_bpmn dep).",
+        %{
+          "instance_id" => %{type: "string", description: "One instance."},
+          "subject_type" => %{type: "string", description: "Instances of this subject type."},
+          "subject_id" => %{type: "string", description: "With subject_type: pin the subject."},
+          "definition_key" => %{type: "string", description: "Instances of one process key."},
+          "statuses" => %{
+            type: "array",
+            description: "Instance statuses to include (default [running]).",
+            items: %{
+              type: "string",
+              enum: ["running", "completed", "failed", "errored", "cancelled", "superseded"]
+            }
+          },
+          "include_children" => %{
+            type: "boolean",
+            description: "Follow call-activity children (default true)."
+          },
+          "include_correlation_keys" => %{
+            type: "boolean",
+            description: "Emit correlation keys in the clear (default false — digested)."
+          },
+          "actor" => %{type: "string", description: "Actor as MODULE:ID (reads thread it)."},
+          "scope" => %{
+            type: "string",
+            enum: ["engine"],
+            description: "Force the engine scope even with an actor given."
+          }
+        },
+        []
+      ),
+      card(
+        "ash_decisions",
+        "List DMN decision definitions per key: the AshDecisions.Catalogue " <>
+          "projection — status, draft flag, latest published version, and the " <>
+          "decisions each document declares (requires the optional " <>
+          "ash_decisions dep). Stored verification available per request; the " <>
+          "Verifier is not re-run. Read-only.",
+        %{
+          "domain" => %{
+            type: "string",
+            description: "Domain module name. Omit to scan all decision domains."
+          },
+          "key" => %{type: "string", description: "Restrict to one decision key."},
+          "graph" => %{
+            type: "boolean",
+            description: "Include the stored graph snapshot of the representative document."
+          },
+          "verification" => %{
+            type: "boolean",
+            description: "Include the stored publish-time verification attribute as-is."
+          }
+        },
+        []
+      ),
+      card(
+        "ash_decision_evaluate",
+        "Dry-evaluate a DMN decision against inputs — a designer preview " <>
+          "with record: false hard-coded, so no Evaluation row is ever " <>
+          "written (requires the optional ash_decisions dep). Published by " <>
+          "default; drafts only via the explicit draft flag.",
+        %{
+          "key" => %{type: "string", description: "Decision definition key."},
+          "inputs" => %{
+            type: "object",
+            description: "The decision inputs (JSON object).",
+            additionalProperties: true
+          },
+          "decision" => %{
+            type: "string",
+            description: "Decision name, when the document declares more than one."
+          },
+          "version" => %{
+            type: "integer",
+            description: "Pin one version (default: latest published)."
+          },
+          "draft" => %{
+            type: "boolean",
+            description: "Evaluate the key's draft instead (default false)."
+          },
+          "domain" => %{type: "string", description: "Domain module name."}
+        },
+        ["key", "inputs"]
+      ),
+      card(
         "ash_daemon_status",
         "The daemon's own status: boot/compile times, reload count, loaded " <>
           "domain and resource counts, describe-cache size, BEAM memory.",
@@ -282,6 +417,13 @@ defmodule AshAgentTools.Mcp.Tools do
   defp more_tools("ash_can", args), do: can(args)
   defp more_tools("ash_rules", args), do: rules(args)
   defp more_tools("ash_transitions", args), do: transitions(args)
+
+  defp more_tools("ash_processes", args), do: processes(args)
+  defp more_tools("ash_process_graph", args), do: process_graph(args)
+  defp more_tools("ash_process_instance", args), do: process_instance(args)
+  defp more_tools("ash_decisions", args), do: decisions(args)
+  defp more_tools("ash_decision_evaluate", args), do: decision_evaluate(args)
+
   defp more_tools("ash_daemon_status", args), do: daemon_tool("ash_daemon_status", args)
   defp more_tools("ash_reload", args), do: daemon_tool("ash_reload", args)
 
@@ -291,6 +433,114 @@ defmodule AshAgentTools.Mcp.Tools do
        error: "unknown tool #{inspect(other)}",
        did_you_mean: Suggest.closest(other, tool_names())
      }}
+  end
+
+  # The list-shaped tools: a domain argument is optional, an empty report is
+  # a valid answer.
+  defp processes(args) do
+    with {:ok, domain} <- optional_resource(args["domain"]) do
+      {:ok, AshAgentTools.processes(domain, key: args["key"])}
+    end
+  end
+
+  defp decisions(args) do
+    with {:ok, domain} <- optional_resource(args["domain"]) do
+      {:ok,
+       AshAgentTools.decisions(domain,
+         key: args["key"],
+         graph: args["graph"] == true,
+         verification: args["verification"] == true
+       )}
+    end
+  end
+
+  defp process_graph(%{} = args) do
+    with {:ok, key} <- required_string(args["key"], "key") do
+      safely(nil, nil, fn ->
+        AshAgentTools.process_graph(key,
+          version: args["version"],
+          draft: args["draft"] == true,
+          domain: args["domain"],
+          include_elements: args["include_elements"] != false
+        )
+      end)
+    end
+  end
+
+  defp process_instance(args) do
+    with {:ok, statuses} <- statuses(args["statuses"]),
+         {:ok, actor} <- optional_actor(args["actor"]),
+         {:ok, scope} <- scope(args["scope"]) do
+      {:ok,
+       AshAgentTools.process_instance(
+         instance_id: args["instance_id"],
+         subject_type: args["subject_type"],
+         subject_id: args["subject_id"],
+         definition_key: args["definition_key"],
+         statuses: statuses,
+         include_children: args["include_children"] != false,
+         include_correlation_keys: args["include_correlation_keys"] == true,
+         actor: actor,
+         scope: scope
+       )}
+    end
+  end
+
+  defp statuses(nil), do: {:ok, nil}
+
+  defp statuses(statuses) when is_list(statuses) do
+    Enum.reduce_while(statuses, {:ok, []}, fn
+      status, {:ok, acc} when is_binary(status) ->
+        {:cont, {:ok, [status | acc]}}
+
+      other, _acc ->
+        {:halt,
+         {:error, %{error: "statuses must be strings, got: #{inspect(other)}", did_you_mean: []}}}
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp statuses(other),
+    do: {:error, %{error: "statuses must be an array, got: #{inspect(other)}", did_you_mean: []}}
+
+  defp optional_actor(nil), do: {:ok, nil}
+  defp optional_actor("none"), do: {:ok, nil}
+
+  defp optional_actor(actor) when is_binary(actor) do
+    case String.split(actor, ":", parts: 2) do
+      [resource, id] ->
+        {:ok, %{"resource" => resource, "id" => id}}
+
+      _ ->
+        {:error,
+         %{error: "actor must be MODULE:ID or none, got: #{inspect(actor)}", did_you_mean: []}}
+    end
+  end
+
+  defp optional_actor(other),
+    do: {:error, %{error: "actor must be a string, got: #{inspect(other)}", did_you_mean: []}}
+
+  defp scope(nil), do: {:ok, nil}
+  defp scope("engine"), do: {:ok, :engine}
+
+  defp scope(other),
+    do: {:error, %{error: "scope must be \"engine\", got: #{inspect(other)}", did_you_mean: []}}
+
+  defp decision_evaluate(%{} = args) do
+    with {:ok, key} <- required_string(args["key"], "key"),
+         :ok <- check_params(args["inputs"]) do
+      safely(nil, nil, fn ->
+        AshAgentTools.decision_evaluate(key, args["inputs"] || %{},
+          decision: args["decision"],
+          version: args["version"],
+          draft: args["draft"] == true,
+          domain: args["domain"]
+        )
+      end)
+    end
   end
 
   # The daemon-only pair, split out of dispatch/2 to keep each case flat.

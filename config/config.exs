@@ -2,16 +2,11 @@
 #
 # SPDX-License-Identifier: MIT
 
+# Test-only configuration: the sandboxed TestRepo behind the BPMN/decision
+# tooling tests (see test/support/test_repo.ex). This package ships no
+# runtime configuration of its own.
 import Config
 
-# Ash 3.33+ requires an explicit string-length counting mode. `:codepoints`
-# matches how SQL data layers count, so constraints are consistent between
-# Elixir-side validation and the database.
-config :ash, default_string_length_count: :codepoints
-
 if config_env() == :test do
-  # The test support domains must be registered so Ash's
-  # domain-config-inclusion verifier accepts them.
-  config :ash_agent_tools,
-    ash_domains: [AshAgentTools.Test.Domain, AshAgentTools.Test.InterfaceDomain]
+  import_config "test.exs"
 end
