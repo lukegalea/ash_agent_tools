@@ -8,13 +8,11 @@
 # atom table in the same way. The fix adds two :line detectors to law #10 in
 # lib/ash_agent_tools/laws.ex. The tests go in test/laws_test.exs.
 #
-# AST-TBD is a placeholder. Before dispatch, file the AST Plane ticket, rename
-# this file to .sdlc/acceptance/AST-<n>.yaml and replace AST-TBD in `item` and
-# every `id`. The ids are not published until then.
-item: AST-TBD
+# Plane ticket: AST-142.
+item: AST-142
 
 criteria:
-  - id: AST-TBD/AC-1
+  - id: AST-142/AC-1
     given: "source text that calls List.to_atom(chars) on line 3"
     when: AshAgentTools.Laws.judge/2 runs on it with the default options
     then: >-
@@ -27,7 +25,7 @@ criteria:
       test/laws_test.exs::test judge/2 — line detectors flags List.to_atom
       as a definite #10
 
-  - id: AST-TBD/AC-2
+  - id: AST-142/AC-2
     given: "source text that calls :erlang.list_to_atom(chars)"
     when: AshAgentTools.Laws.judge/2 runs on it with the default options
     then: >-
