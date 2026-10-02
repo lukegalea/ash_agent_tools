@@ -322,6 +322,8 @@ rules land in your `AGENTS.md` automatically.
 Conventional Commits; MIT licensed with REUSE/SPDX headers on every source
 file (`reuse lint` clean; `eval/` fixtures are annotated via `REUSE.toml`).
 
+Agents: read [AGENTS.md](AGENTS.md) before you change this repository. It links the agent constitution (`AGENT_PRINCIPLES.md`).
+
 ## License
 
 MIT — see [LICENSES/MIT.txt](LICENSES/MIT.txt).
