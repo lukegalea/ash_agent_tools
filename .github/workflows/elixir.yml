@@ -62,6 +62,16 @@ jobs:
       # every decision fixture fails to load.
       - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mix test
+      # The JUnit XML evidence that .sdlc/verification.yaml declares
+      # (report.path). junit_formatter writes it on every run; a missing
+      # report fails this job instead of passing without evidence.
+      - name: Upload JUnit test report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: junit-test-report
+          path: test/reports/junit/*.xml
+          if-no-files-found: error
 
   compile-test:
     name: MIX_ENV=test mix compile --warnings-as-errors

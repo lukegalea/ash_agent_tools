@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "zai-coding-plan/glm-5.3",
+  "mcp": {
+    "ash_agent": {
+      "type": "remote",
+      "url": "http://127.0.0.1:4100",
+      "enabled": true
+    },
+    "tidewave": {
+      "type": "remote",
+      "url": "http://127.0.0.1:4000/tidewave/mcp",
+      "enabled": false
+    }
+  }
+}
