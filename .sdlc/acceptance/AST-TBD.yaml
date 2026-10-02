@@ -1,0 +1,40 @@
+---
+# Acceptance criteria for the first dispatchable ash_agent_tools task
+# (SDLC-86). Written BEFORE implementation; CI is the only evidence producer.
+#
+# The task: iron law #10 ("no String.to_atom on user input") detects
+# String.to_atom/1 and :erlang.binary_to_atom/2 but not the charlist
+# equivalents, List.to_atom/1 and :erlang.list_to_atom/1. They exhaust the
+# atom table in the same way. The fix adds two :line detectors to law #10 in
+# lib/ash_agent_tools/laws.ex. The tests go in test/laws_test.exs.
+#
+# AST-TBD is a placeholder. Before dispatch, file the AST Plane ticket, rename
+# this file to .sdlc/acceptance/AST-<n>.yaml and replace AST-TBD in `item` and
+# every `id`. The ids are not published until then.
+item: AST-TBD
+
+criteria:
+  - id: AST-TBD/AC-1
+    given: "source text that calls List.to_atom(chars) on line 3"
+    when: AshAgentTools.Laws.judge/2 runs on it with the default options
+    then: >-
+      the report holds exactly one law "10" violation for that call, with
+      tier :definite, category :security, line 3, and a hint that names
+      List.to_existing_atom
+    verify: unit
+    risk: medium
+    test: >-
+      test/laws_test.exs::test judge/2 — line detectors flags List.to_atom
+      as a definite #10
+
+  - id: AST-TBD/AC-2
+    given: "source text that calls :erlang.list_to_atom(chars)"
+    when: AshAgentTools.Laws.judge/2 runs on it with the default options
+    then: >-
+      the report holds a law "10" violation with tier :definite and a hint
+      that names list_to_existing_atom
+    verify: unit
+    risk: medium
+    test: >-
+      test/laws_test.exs::test judge/2 — line detectors flags
+      :erlang.list_to_atom as a definite #10

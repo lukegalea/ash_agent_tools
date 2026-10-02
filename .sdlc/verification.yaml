@@ -1,0 +1,35 @@
+---
+# Verification contract for ash_agent_tools (ai-sdlc ADR 0039).
+#
+# Where the acceptance criteria live: one file per work item, named by its
+# Plane key (.sdlc/acceptance/<ITEM>.yaml).
+ac_dir: .sdlc/acceptance
+
+# ExUnit tagging convention: every acceptance test carries
+# `@tag ac: "<criterion-id>"` so a JUnit testcase traces back to its criterion.
+tag_convention: exunit-tag-ac
+
+# The evidence artifact CI produces. junit_formatter writes it on every
+# `mix test` run (config/test.exs + test/test_helper.exs), and the `mix test`
+# job in .github/workflows/elixir.yml uploads it as the `junit-test-report`
+# artifact. The upload fails the job when the file is missing.
+report:
+  format: junit
+  path: test/reports/junit/*.xml
+
+# How to run each verification level. Only the levels this repo uses.
+# The unit suite needs PostgreSQL for the :db-tagged BPMN/decision tests
+# (SKIP_DB=1 excludes them) and xmllint on PATH for the DMN fixtures.
+suites:
+  unit: >-
+    mix test
+  static: >-
+    mix compile --warnings-as-errors && mix format --check-formatted &&
+    mix credo --strict && mix dialyzer
+
+# Where the verdict lands. `mix test` is the GitHub Actions check run that
+# executes the suite and uploads the JUnit report. CI writes it, never an
+# agent.
+ci:
+  provider: github-actions
+  status_context: mix test
