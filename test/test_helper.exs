@@ -53,6 +53,15 @@ watcher_works? =
     File.mkdir_p!(dir)
 
     {:ok, backend} = FileSystem.start_link(dirs: [dir])
+
+    # start_link links the worker to this process: without the unlink, the
+    # Process.exit below propagates its untrappable :killed down the link and
+    # takes this evaluator — and the whole test run — with it. That only fires
+    # on machines where inotifywait actually exists; where it doesn't, the
+    # bootstrap fails into the rescue below and the watcher tests are simply
+    # excluded, as intended.
+    true = Process.unlink(backend)
+
     :ok = FileSystem.subscribe(backend)
 
     File.write!(Path.join(dir, "probe"), "x")

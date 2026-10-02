@@ -81,8 +81,9 @@ defmodule AshAgentTools.Laws do
   #   * `:mount`  — regex per line inside `def mount` bodies; `guarded_by`
   #                 suppresses the whole block when it matches (e.g. the
   #                 block contains `connected?`)
-  #   * `:window` — anchor regex, then `window` following lines must contain
-  #                 none of `none` (e.g. `use Oban.Worker` without `unique`)
+  #   * `:window` — anchor regex; the anchor line and the `window` following
+  #                 lines must contain none of `none` (e.g. `use Oban.Worker`
+  #                 without `unique`)
   #   * `:file`   — every `all` pattern present and no `none` pattern present
   #                 in the whole text (context laws)
   #
@@ -741,8 +742,12 @@ defmodule AshAgentTools.Laws do
   end
 
   defp window_clean?(det, lines, no) do
+    # `no` is 1-based; slice from the anchor line itself (`no - 1` 0-based) so
+    # an anchor line that already carries the option (`use Oban.Worker, ...,
+    # unique: [...]`) counts as clean, and keep the full `window` lines of
+    # reach past it.
     lines
-    |> Enum.slice(no, det.window)
+    |> Enum.slice(no - 1, det.window + 1)
     |> Enum.any?(fn line -> Enum.any?(det.none, &Regex.match?(&1, line)) end)
   end
 

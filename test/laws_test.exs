@@ -252,6 +252,38 @@ defmodule AshAgentTools.LawsTest do
 
       assert Laws.judge(source).violations == []
     end
+
+    test "unique: on the same line as use Oban.Worker is clean (#07)" do
+      source = """
+      defmodule MyApp.Workers.Drain do
+        use Oban.Worker, queue: :ledger, max_attempts: 10, unique: [period: 30]
+
+        @impl true
+        def perform(%Oban.Job{}), do: :ok
+      end
+      """
+
+      assert Laws.judge(source).violations == []
+    end
+
+    test "unique: on the last line of the window is clean (#07)" do
+      # `window: 12` reaches 12 lines past the anchor: 11 option lines, then
+      # `unique:` as the twelfth.
+      options = Enum.map_join(1..11, "\n", &"    opt_#{&1}: #{&1}")
+
+      source = """
+      defmodule MyApp.Workers.Sync do
+        use Oban.Worker,
+      #{options}
+          unique: [period: 300]
+
+        @impl true
+        def perform(%Oban.Job{}), do: :ok
+      end
+      """
+
+      assert Laws.judge(source).violations == []
+    end
   end
 
   describe "judge/2 — file detectors" do
