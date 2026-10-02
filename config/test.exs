@@ -52,3 +52,15 @@ config :ash_bpmn, oban_testing: :inline
 config :ash_bpmn, assignment_resolver: AshAgentTools.Test.AssignmentResolver
 
 config :logger, level: :warning
+
+# JUnit XML for every `mix test` run: the evidence artifact
+# .sdlc/verification.yaml declares (report.path: test/reports/junit/*.xml).
+# CI uploads it; the directory is created when it is missing.
+config :junit_formatter,
+  report_dir: "test/reports/junit",
+  report_file: "junit_report.xml",
+  automatic_create_dir?: true,
+  print_report_file: true,
+  # file= on each testcase, so a report entry traces back to the
+  # acceptance file's `test: path::name` reference.
+  include_filename?: true

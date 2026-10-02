@@ -96,7 +96,10 @@ db_tests? =
     false
   end
 
-ExUnit.start()
+# JUnitFormatter writes the JUnit XML evidence that .sdlc/verification.yaml
+# declares (test/reports/junit/*.xml, configured in config/test.exs);
+# CLIFormatter keeps the usual console output.
+ExUnit.start(formatters: [ExUnit.CLIFormatter, JUnitFormatter])
 
 # Same watcher semantics as before; `:db` excludes the BPMN/decision tests
 # under SKIP_DB.

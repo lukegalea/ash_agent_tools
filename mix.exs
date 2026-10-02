@@ -120,7 +120,13 @@ defmodule AshAgentTools.MixProject do
 
       # Docs and dependency advisories, for CI's `mix docs` / `mix deps.audit`.
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
-      {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false}
+      {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false},
+
+      # Writes the JUnit XML evidence that .sdlc/verification.yaml declares
+      # (report.path: test/reports/junit/*.xml) on every `mix test` run.
+      # Configured in config/test.exs, enabled in test/test_helper.exs, and
+      # uploaded as a CI artifact by .github/workflows/elixir.yml.
+      {:junit_formatter, "~> 3.4", only: :test}
     ]
   end
 
