@@ -13,6 +13,10 @@
 # Temporary files, for example, from tests.
 /tmp/
 
+# JUnit XML written by junit_formatter on every mix test run (see
+# config/test.exs and .sdlc/verification.yaml). CI uploads it; never commit it.
+/test/reports/
+
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 
