@@ -50,12 +50,7 @@ defmodule Mix.Tasks.AshAgent.Validate do
 
   @impl Mix.Task
   def run(args) do
-    {opts, positional, _invalid} =
-      OptionParser.parse(args, strict: [pretty: :boolean, out: :string, verbose: :boolean])
-
-    AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
-      AshAgentTools.TaskOutput.ensure_compiled()
-
+    AshAgentTools.MixTask.run(args, fn positional, opts ->
       case positional do
         [resource, action] ->
           validate(resource, action, "{}", opts)
@@ -77,8 +72,7 @@ defmodule Mix.Tasks.AshAgent.Validate do
 
     try do
       AshAgentTools.validate_input(resource, action_name, params)
-      |> Jason.encode!(pretty: !!opts[:pretty])
-      |> AshAgentTools.TaskOutput.write_json(opts)
+      |> AshAgentTools.MixTask.write_json(opts)
     rescue
       # An agent-supplied action name that resolves to nothing must not
       # break the pure-JSON contract: emit a structured error (with
@@ -88,7 +82,7 @@ defmodule Mix.Tasks.AshAgent.Validate do
       error in ArgumentError ->
         did_you_mean = AshAgentTools.Describe.action_did_you_mean(resource, action_name)
 
-        AshAgentTools.TaskOutput.emit_json_error(
+        AshAgentTools.MixTask.emit_json_error(
           %{error: Exception.message(error), did_you_mean: did_you_mean},
           opts
         )

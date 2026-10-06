@@ -63,44 +63,35 @@ defmodule Mix.Tasks.AshAgent.Describe do
 
   @impl Mix.Task
   def run(args) do
-    {opts, positional, _invalid} =
-      OptionParser.parse(args,
-        strict: [action: :string, pretty: :boolean, out: :string, verbose: :boolean]
-      )
+    AshAgentTools.MixTask.run(
+      args,
+      fn positional, opts ->
+        json =
+          case {positional, opts[:action]} do
+            {[], nil} ->
+              summary()
 
-    AshAgentTools.TaskOutput.with_quiet_logger(opts, fn ->
-      AshAgentTools.TaskOutput.ensure_compiled()
+            {[resource], nil} ->
+              run_describe(resource, nil, opts)
 
-      # Resource modules load lazily; make the no-argument discovery summary
-      # useful by loading the domains configured the way ash projects declare
-      # them (`config :my_app, ash_domains: [...]`).
-      AshAgentTools.TaskOutput.load_configured_domains()
+            {[resource], action} ->
+              run_describe(resource, action, opts)
 
-      json =
-        case {positional, opts[:action]} do
-          {[], nil} ->
-            summary()
+            {[resource, action], nil} ->
+              run_describe(resource, action, opts)
 
-          {[resource], nil} ->
-            run_describe(resource, nil, opts)
+            {_, action} when is_binary(action) ->
+              run_describe(hd(positional), action, opts)
 
-          {[resource], action} ->
-            run_describe(resource, action, opts)
+            _ ->
+              Mix.raise("Usage: mix ash_agent.describe [RESOURCE] [--action ACTION]")
+          end
 
-          {[resource, action], nil} ->
-            run_describe(resource, action, opts)
-
-          {_, action} when is_binary(action) ->
-            run_describe(hd(positional), action, opts)
-
-          _ ->
-            Mix.raise("Usage: mix ash_agent.describe [RESOURCE] [--action ACTION]")
-        end
-
-      json
-      |> Jason.encode!(pretty: !!opts[:pretty])
-      |> AshAgentTools.TaskOutput.write_json(opts)
-    end)
+        AshAgentTools.MixTask.write_json(json, opts)
+      end,
+      [action: :string],
+      true
+    )
   end
 
   # A resource with no action describes the resource itself (the documented
@@ -136,7 +127,7 @@ defmodule Mix.Tasks.AshAgent.Describe do
         do: AshAgentTools.Describe.action_did_you_mean(module, action),
         else: []
 
-    AshAgentTools.TaskOutput.emit_json_error(
+    AshAgentTools.MixTask.emit_json_error(
       %{error: Exception.message(error), did_you_mean: did_you_mean},
       opts
     )
