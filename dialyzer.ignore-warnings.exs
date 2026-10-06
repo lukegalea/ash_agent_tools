@@ -24,5 +24,5 @@
   # for unknown module parts — a batch op with a typo'd module must come
   # back as a structured error, not crash the caller. Dialyzer believes the
   # raise is unreachable; the rescue is the contract.
-  {"lib/ash_agent_tools/edit.ex", :pattern_match_cov}
+  {"lib/ash_agent_tools/edit_batch.ex", :pattern_match_cov}
 ]
