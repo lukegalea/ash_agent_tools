@@ -1,0 +1,42 @@
+---
+# Acceptance criteria for AST-121 (shared Mix-task plumbing in ash_agent_tools;
+# split the 2,000-line edit.ex), in the SDLC-49 acceptance schema. The oracle is
+# regression-first: the existing edit suites must pass UNCHANGED across the
+# split — behaviour is fixed, only structure moves.
+item: AST-121
+
+criteria:
+  - id: AST-121/AC-1
+    given: the Mix tasks under lib/mix/tasks/ash_agent/
+    when: they share boot, argument-parsing, or output-formatting logic
+    then: >-
+      that logic lives in one shared plumbing module the tasks delegate to —
+      no duplicated task-boot or parsing code across task files
+    verify: static
+    risk: low
+    test: manual — structural review of lib/mix/tasks/ash_agent/ against the shared module
+
+  - id: AST-121/AC-2
+    given: the existing edit task suite
+    when: edit.ex is split into focused modules
+    then: every test in the suite passes WITHOUT modification — the CLI
+      surface, outputs, and exit codes are unchanged
+    verify: unit
+    risk: high
+    test: test/edit_test.exs
+
+  - id: AST-121/AC-3
+    given: the existing edit-create suite
+    when: the split lands
+    then: it passes unchanged alongside AC-2's suite
+    verify: unit
+    risk: medium
+    test: test/edit_create_test.exs
+
+  - id: AST-121/AC-4
+    given: the post-split tree
+    when: the full test suite runs
+    then: it is green with no new warnings under --warnings-as-errors
+    verify: static
+    risk: medium
+    test: test/ash_agent_tools_test.exs
