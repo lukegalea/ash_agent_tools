@@ -373,6 +373,22 @@ defmodule AshAgentTools.Laws do
         %{
           kind: :line,
           tier: :definite,
+          pattern: ~r/\bList\.to_atom\(/,
+          hint:
+            "List.to_atom/1 on dynamic input exhausts the atom table — use " <>
+              "List.to_existing_atom/1 or a fixed allow-list"
+        },
+        %{
+          kind: :line,
+          tier: :definite,
+          pattern: ~r/:erlang\.list_to_atom\(/,
+          hint:
+            "list_to_atom/1 on dynamic input exhausts the atom table — use " <>
+              "list_to_existing_atom/1 or a fixed allow-list"
+        },
+        %{
+          kind: :line,
+          tier: :definite,
           pattern: ~r/:erlang\.binary_to_atom\(/,
           hint:
             "binary_to_atom/2 on dynamic input exhausts the atom table — use " <>

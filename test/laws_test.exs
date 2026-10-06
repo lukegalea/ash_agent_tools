@@ -82,6 +82,29 @@ defmodule AshAgentTools.LawsTest do
       assert Enum.any?(report.violations, &(&1.law == "10" and &1.tier == :definite))
     end
 
+    test "judge/2 — line detectors flags List.to_atom as a definite #10" do
+      source = """
+      defmodule Bad do
+        def build(chars) do
+          List.to_atom(chars)
+        end
+      end
+      """
+
+      report = Laws.judge(source)
+      assert [violation] = Enum.filter(report.violations, &(&1.law == "10"))
+      assert %{tier: :definite, category: :security, line: 3} = violation
+      assert violation.hint =~ "List.to_existing_atom"
+    end
+
+    test "judge/2 — line detectors flags :erlang.list_to_atom as a definite #10" do
+      report = Laws.judge(":erlang.list_to_atom(chars)")
+      assert [violation] = Enum.filter(report.violations, &(&1.law == "10"))
+      assert violation.tier == :definite
+      assert violation.category == :security
+      assert violation.hint =~ "list_to_existing_atom"
+    end
+
     test "raw(literal) is clean; raw(variable) is a definite #12" do
       literal = Laws.judge(~s|raw("<p>static</p>")|)
       refute Enum.any?(literal.violations, &(&1.law == "12"))
