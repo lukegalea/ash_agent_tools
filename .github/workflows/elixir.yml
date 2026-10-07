@@ -166,6 +166,20 @@ jobs:
           deps-token: ${{ secrets.PRIVATE_DEPS_TOKEN }}
       - run: mix deps.audit
 
+  # `mix deps.audit` (mix_audit) reads its own advisory database and has
+  # reported "No vulnerabilities found" while Hex's advisory feed flagged
+  # locked packages (SDLC-96). `mix hex.audit` checks the lock against Hex's
+  # retirements and security advisories, so both gates run.
+  hex-audit:
+    name: mix hex.audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.PRIVATE_DEPS_TOKEN }}
+      - run: mix hex.audit
+
   reuse:
     name: REUSE compliance
     runs-on: ubuntu-latest
