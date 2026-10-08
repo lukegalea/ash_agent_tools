@@ -61,6 +61,15 @@ jobs:
       # documents against the normative XSD through it). Without it on PATH
       # every decision fixture fails to load.
       - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+      # Regression guard for AST-150. Under these seeds the decision tooling
+      # tests failed: the first DMN publish of the run timed out its FEEL
+      # parse while the engine's modules were still loading. The failure
+      # depends on timing as well as order, so a pass here is a guard, not
+      # proof. The random-seed run below writes the uploaded JUnit report.
+      - name: mix test (seeds that exposed AST-150)
+        run: |
+          mix test --seed 990638
+          mix test --seed 118424
       - run: mix test
       # The JUnit XML evidence that .sdlc/verification.yaml declares
       # (report.path). junit_formatter writes it on every run; a missing
