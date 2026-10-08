@@ -21,6 +21,9 @@ path = [
   "test/fixtures/*.json",
   ".sdlc/**",
   "opencode.json",
+  "devenv.yaml",
+  "devenv.lock",
+  ".devcontainer/devcontainer.json",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>"
