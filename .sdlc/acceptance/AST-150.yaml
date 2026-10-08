@@ -1,0 +1,43 @@
+---
+# Acceptance criteria for AST-150: DecisionToolsTest fails under some random
+# seeds and passes alone.
+#
+# Root cause (reproduced locally with the CI seed 990638 from
+# https://github.com/lukegalea/ash_agent_tools/actions/runs/37646211916): the
+# first decision test that publishes test/fixtures/surcharge.dmn in a run
+# pays the cold start of the FEEL parser. ash_decisions parses each FEEL
+# expression in a task with a 250ms wall-clock bound
+# (AshDecisions.Config.feel_timeout_ms/0). In the interactive-mode test VM,
+# the parser modules load inside that task. While the async suite runs, the
+# load can exceed the bound. The draft then stores the compile error "input
+# clause 'Region' does not compile: expression did not finish within 250ms",
+# and publish! refuses it. Which decision test fails depends on which one is
+# first, so the failure follows the seed. No database state is shared.
+#
+# Plane ticket: AST-150.
+item: AST-150
+
+criteria:
+  - id: AST-150/AC-1
+    given: >-
+      the full suite under a seed that failed before the fix (990638, the
+      seed of the failed CI run, and 118424, found locally)
+    when: mix test --seed <seed> runs in CI
+    then: >-
+      every DecisionToolsTest test passes, and the fixture publishes with no
+      compile errors
+    verify: unit
+    risk: low
+    test: >-
+      test/decision_tools_test.exs::test decision_evaluate/3 an explicit
+      version pins the evaluation
+
+  - id: AST-150/AC-2
+    given: the decision tooling tests, unchanged assertions
+    when: the full suite runs under 20 consecutive random seeds
+    then: no decision tooling test fails
+    verify: unit
+    risk: low
+    test: >-
+      test/decision_tools_test.exs::test decisions/2 lists the catalogue per
+      key with the declared decisions
