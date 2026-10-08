@@ -7,12 +7,20 @@
 # first decision test that publishes test/fixtures/surcharge.dmn in a run
 # pays the cold start of the FEEL parser. ash_decisions parses each FEEL
 # expression in a task with a 250ms wall-clock bound
-# (AshDecisions.Config.feel_timeout_ms/0). In the interactive-mode test VM,
-# the parser modules load inside that task. While the async suite runs, the
-# load can exceed the bound. The draft then stores the compile error "input
-# clause 'Region' does not compile: expression did not finish within 250ms",
-# and publish! refuses it. Which decision test fails depends on which one is
+# (AshDecisions.Config.feel_timeout_ms/0) and caches each successful parse
+# in :persistent_term. In the test VM, the first publish of a run loads the
+# engine's modules (boxic_feel, boxic_dmn, xmerl, decimal, ...) and does the
+# first parses inside that bound. While the async suite runs, that can take
+# longer than 250ms. The draft then stores the compile error "input clause
+# 'Region' does not compile: expression did not finish within 250ms", and
+# publish! refuses it. Which decision test fails depends on which one is
 # first, so the failure follows the seed. No database state is shared.
+#
+# Fix: test/test_helper.exs runs the fixture through compile, verify and
+# evaluate once before the fan-out, under a raised bound that it restores.
+# The tests then hit the parse cache and do not depend on wall-clock time.
+# A first attempt that only preloaded the boxic_dmn and ash_decisions
+# modules still failed 3 of 20 local seeds (it missed boxic_feel and xmerl).
 #
 # Plane ticket: AST-150.
 item: AST-150

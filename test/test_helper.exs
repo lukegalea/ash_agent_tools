@@ -39,21 +39,6 @@ AshAgentTools.Test.User
 |> Ash.Changeset.for_create(:create, %{email: "seed@example.com"})
 |> Ash.create!(authorize?: false)
 
-# The decision engine parses every FEEL expression inside a task with a 250ms
-# wall-clock bound (`AshDecisions.Config.feel_timeout_ms/0`). The test VM
-# loads modules on first use, so the first DMN publish of a run loaded the
-# FEEL parser *inside* that window. With the async suite competing for the
-# schedulers and the code server, the load could overrun it: the draft then
-# stored "expression did not finish within 250ms" as a compile error, and
-# whichever decision test happened to publish first failed (AST-150). Load
-# the engine's modules once, up front, as a release does at boot, so the
-# bound times the parse and nothing else.
-for app <- [:boxic_dmn, :ash_decisions] do
-  :ok = Application.ensure_loaded(app)
-  {:ok, modules} = :application.get_key(app, :modules)
-  Code.ensure_all_loaded!(modules)
-end
-
 # The daemon watcher tests drive a real `file_system` backend; environments
 # where the port program cannot bootstrap or deliver events (bare containers
 # without inotify) get them excluded instead of red.
@@ -115,6 +100,43 @@ db_tests? =
     Ecto.Migrator.run(AshAgentTools.TestRepo, "priv/test_repo/migrations", :up, all: true)
 
     Ecto.Adapters.SQL.Sandbox.mode(AshAgentTools.TestRepo, :manual)
+
+    # The decision engine parses every FEEL expression in a task with a 250ms
+    # wall-clock bound (`AshDecisions.Config.feel_timeout_ms/0`) and caches
+    # each successful parse in :persistent_term. The first decision test to
+    # publish the fixture paid for module loading and the first parses
+    # inside that bound, competing with the async suite. When it overran,
+    # the draft stored "expression did not finish within 250ms" as a compile
+    # error, publish! refused it, and whichever decision test was first
+    # failed, so the failure followed the seed (AST-150).
+    #
+    # Run the fixture through the real path once, before the fan-out:
+    # compile, verify, evaluate. That loads every module the path needs,
+    # whichever app owns it, and caches the fixture's expressions, so the
+    # tests do not depend on wall-clock time. The bound is raised only for
+    # this warm-up and restored before any test runs.
+    feel_timeout = Application.fetch_env(:ash_decisions, :feel_timeout_ms)
+    Application.put_env(:ash_decisions, :feel_timeout_ms, 10_000)
+
+    try do
+      dmn = File.read!("test/fixtures/surcharge.dmn")
+      graph = AshDecisions.Compiler.compile!(dmn)
+      AshDecisions.Verifier.verify(graph)
+
+      {:ok, _} =
+        AshAgentTools.Test.Decisions.Definition
+        |> struct(key: "warm-up", version: 0, xml: dmn, graph: graph)
+        |> AshDecisions.Evaluator.evaluate(%{"region" => "domestic"},
+          record: false,
+          timeout: 10_000
+        )
+    after
+      case feel_timeout do
+        {:ok, ms} -> Application.put_env(:ash_decisions, :feel_timeout_ms, ms)
+        :error -> Application.delete_env(:ash_decisions, :feel_timeout_ms)
+      end
+    end
+
     true
   else
     false
