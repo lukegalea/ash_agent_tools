@@ -27,3 +27,12 @@ erl_crash.dump
 ash_agent_tools-*.tar
 
 PUBLIC-REVIEW.md
+
+# devenv state, generated files and per-developer overrides (devenv.nix).
+/.devenv/
+/.devenv.flake.nix
+/devenv.local.nix
+/.direnv/
+
+# The platform CA bundle the Coder template stages for .devcontainer/install-ca.sh.
+/.sdlc-ca-bundle.crt

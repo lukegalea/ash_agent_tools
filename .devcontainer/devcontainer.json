@@ -1,0 +1,21 @@
+// The dev container for ash_agent_tools: the image is built from devenv.nix
+// at the repo root (its header says how to build and push it). The image tag
+// must match `containers.devenv.version` in devenv.nix.
+{
+  "name": "ash_agent_tools",
+  "image": "harbor.sdlc.home.arpa/sdlc/ash-agent-tools-devenv:2026-10-08",
+
+  // The devenv image's only user is `user` (uid 1000, HOME=/env). The image
+  // has no usermod, so the CLI must not try to remap the uid.
+  "containerUser": "user",
+  "remoteUser": "user",
+  "updateRemoteUserUID": false,
+
+  // Trust the platform CA, without sudo. It runs before the Coder agent
+  // connects, which needs the CA. Nothing here is interactive.
+  "postCreateCommand": "bash .devcontainer/install-ca.sh",
+
+  // PostgreSQL for the :db-tagged tests, on localhost:5432 like CI's
+  // postgres:16 service. pg_ctl starts it in the background and returns.
+  "postStartCommand": "bash .devcontainer/start-postgres.sh"
+}

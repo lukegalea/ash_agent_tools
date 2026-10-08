@@ -324,6 +324,25 @@ file (`reuse lint` clean; `eval/` fixtures are annotated via `REUSE.toml`).
 
 Agents: read [AGENTS.md](AGENTS.md) before you change this repository. It links the agent constitution (`AGENT_PRINCIPLES.md`).
 
+### Development environment
+
+`devenv.nix` holds the toolchain CI uses: OTP 27, Elixir 1.18, PostgreSQL 16
+and `xmllint`. `devenv shell` gives it to you locally. The same file builds
+the dev container image that `.devcontainer/devcontainer.json` uses:
+
+```sh
+devenv container build devenv
+devenv container copy devenv --registry docker-daemon:   # load into Docker
+devenv container copy devenv                              # push to the registry in devenv.nix
+```
+
+In the dev container, `postStartCommand` starts PostgreSQL on
+`localhost:5432`, so `mix test` runs the whole suite. `postCreateCommand`
+adds a staged platform CA (`.sdlc-ca-bundle.crt`) to the trust store without
+`sudo`; see `.devcontainer/install-ca.sh`. When you change `devenv.nix` or
+`devenv.lock`, bump `containers.devenv.version` and the image tag in
+`devcontainer.json` together.
+
 ## License
 
 MIT — see [LICENSES/MIT.txt](LICENSES/MIT.txt).
