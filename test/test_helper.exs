@@ -39,6 +39,21 @@ AshAgentTools.Test.User
 |> Ash.Changeset.for_create(:create, %{email: "seed@example.com"})
 |> Ash.create!(authorize?: false)
 
+# The decision engine parses every FEEL expression inside a task with a 250ms
+# wall-clock bound (`AshDecisions.Config.feel_timeout_ms/0`). The test VM
+# loads modules on first use, so the first DMN publish of a run loaded the
+# FEEL parser *inside* that window. With the async suite competing for the
+# schedulers and the code server, the load could overrun it: the draft then
+# stored "expression did not finish within 250ms" as a compile error, and
+# whichever decision test happened to publish first failed (AST-150). Load
+# the engine's modules once, up front, as a release does at boot, so the
+# bound times the parse and nothing else.
+for app <- [:boxic_dmn, :ash_decisions] do
+  :ok = Application.ensure_loaded(app)
+  {:ok, modules} = :application.get_key(app, :modules)
+  Code.ensure_all_loaded!(modules)
+end
+
 # The daemon watcher tests drive a real `file_system` backend; environments
 # where the port program cannot bootstrap or deliver events (bare containers
 # without inotify) get them excluded instead of red.
