@@ -40,9 +40,21 @@ criteria:
       test/decision_tools_test.exs::test decision_evaluate/3 an explicit
       version pins the evaluation
 
+  # AC-2 evidence: CI run
+  # https://github.com/lukegalea/ash_agent_tools/actions/runs/37719143799
+  # (commit 146b898, job 113122510336, "mix test x20 random seeds"). A
+  # temporary job ran the full suite under 20 consecutive random seeds and
+  # uploaded each run's JUnit report as the ast-150-twenty-seeds artifact.
+  # The commit after it reverts the job. All 9 DecisionToolsTest testcases
+  # passed in all 20 runs (180 of 180). Two runs (seeds 166850 and 510204)
+  # failed two AshAgentTools.MixTaskTest tests ("write_json emits compact
+  # JSON by default" and "emit_json_error preserves the structured error
+  # contract": the captured output was empty). That is a separate
+  # stdout-capture flake, not a decision tooling test and outside AST-150,
+  # but it makes the job's overall result a failure.
   - id: AST-150/AC-2
     given: the decision tooling tests, unchanged assertions
-    when: the full suite runs under 20 consecutive random seeds
+    when: the full suite runs under 20 consecutive random seeds in CI
     then: no decision tooling test fails
     verify: unit
     risk: low
