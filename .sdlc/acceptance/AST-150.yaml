@@ -36,9 +36,10 @@ criteria:
       compile errors
     verify: unit
     risk: low
-    test: >-
-      test/decision_tools_test.exs::test decision_evaluate/3 an explicit
-      version pins the evaluation
+    # ExUnit test "an explicit version pins the evaluation" in
+    # describe "decision_evaluate/3", written in the snake-cased form the
+    # evidence resolver matches.
+    test: test/decision_tools_test.exs::an_explicit_version_pins_the_evaluation
 
   # AC-2 evidence: CI run
   # https://github.com/lukegalea/ash_agent_tools/actions/runs/37719143799
@@ -58,6 +59,7 @@ criteria:
     then: no decision tooling test fails
     verify: unit
     risk: low
+    # ExUnit test "lists the catalogue per key with the declared decisions"
+    # in describe "decisions/2".
     test: >-
-      test/decision_tools_test.exs::test decisions/2 lists the catalogue per
-      key with the declared decisions
+      test/decision_tools_test.exs::lists_the_catalogue_per_key_with_the_declared_decisions
