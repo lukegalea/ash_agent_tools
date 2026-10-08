@@ -82,6 +82,64 @@ jobs:
           path: test/reports/junit/*.xml
           if-no-files-found: error
 
+  # TEMPORARY (AST-150 AC-2 evidence). Runs the full suite under 20
+  # consecutive random seeds and uploads each run's JUnit report. The next
+  # commit reverts this job; the run id it produced is cited in
+  # .sdlc/acceptance/AST-150.yaml.
+  twenty-seeds:
+    name: mix test x20 random seeds (AST-150 AC-2)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+          PGTZ: UTC
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-elixir
+        with:
+          deps-token: ${{ secrets.PRIVATE_DEPS_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+      - name: mix test under 20 consecutive random seeds
+        run: |
+          mkdir -p seed-reports
+          failed=0
+          echo "| run | seed | result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 20); do
+            seed=$(shuf -i 0-999999 -n 1)
+            echo "::group::run $i seed $seed"
+            if mix test --seed "$seed" 2>&1 | tee "seed-reports/run-$i-seed-$seed.log"; status=${PIPESTATUS[0]}; [ "$status" -eq 0 ]; then
+              result=pass
+            else
+              result="FAIL (exit $status)"
+              failed=$((failed + 1))
+            fi
+            cp test/reports/junit/junit_report.xml "seed-reports/run-$i-seed-$seed.xml" || true
+            summary=$(grep -E '[0-9]+ doctests?, [0-9]+ tests?, [0-9]+ failures?' "seed-reports/run-$i-seed-$seed.log" | tail -1 || true)
+            echo "| $i | $seed | $result: $summary |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::endgroup::"
+            echo "run $i seed $seed: $result: $summary"
+          done
+          echo "failed runs: $failed of 20" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]
+      - name: Upload per-seed JUnit reports and logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ast-150-twenty-seeds
+          path: seed-reports/
+          if-no-files-found: error
+
   compile-test:
     name: MIX_ENV=test mix compile --warnings-as-errors
     runs-on: ubuntu-latest
