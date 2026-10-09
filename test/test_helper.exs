@@ -11,6 +11,7 @@
   AshAgentTools.Test.Author,
   AshAgentTools.Test.Comment,
   AshAgentTools.Test.Guarded,
+  AshAgentTools.Test.Injected,
   AshAgentTools.Test.ContextProbe,
   AshAgentTools.Test.ProbeDsl,
   AshAgentTools.Test.Probed,

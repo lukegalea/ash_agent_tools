@@ -20,6 +20,12 @@ defmodule AshAgentTools.Describe do
   @doc """
   Describes a resource: identity, fields, relationships, and actions.
 
+  The report is self-describing: a `"~legend"` map at the top level explains
+  the non-obvious keys (accept/accepts, constraints, source locations), and
+  fields not declared in the resource's own source carry a `"~extension"`
+  provenance marker — extension-injected columns should never read as
+  mysteries. See `AshAgentTools.Describe` moduledoc.
+
   Raises `ArgumentError` when `resource` is not a loaded Ash resource.
   """
   @spec describe_resource(module()) :: map()
@@ -35,17 +41,24 @@ defmodule AshAgentTools.Describe do
       primary_key: Ash.Resource.Info.primary_key(resource),
       multitenancy: multitenancy(resource),
       source: Source.from_module(resource),
+      extensions: extensions(resource),
       fields: fields(resource),
       aggregates: aggregates(resource),
       calculations: calculations(resource),
       relationships: relationships(resource),
-      actions: actions(resource)
+      actions: actions(resource),
+      "~legend": resource_legend()
     }
   end
 
   @doc """
   Describes a single action: input contract, return shape, code interfaces,
   source location.
+
+  The report is self-describing: a `"~legend"` map at the top level explains
+  the non-obvious keys, `accepts` aliases `accept`, and every accepted
+  attribute appears in `input.attributes` with its type, constraints, and
+  defaults — required inputs are never bare names without detail.
 
   Raises `ArgumentError` for unknown resources and actions.
   """
@@ -60,11 +73,13 @@ defmodule AshAgentTools.Describe do
       type: action.type,
       description: Map.get(action, :description),
       accept: accept(action),
+      accepts: accept(action),
       returns: return_shape(resource, action),
       arguments: Enum.map(action.arguments, &argument_info/1),
       input: input_contract(resource, action),
       code_interfaces: code_interfaces(resource, action),
-      source: Source.from_entity(action)
+      source: Source.from_entity(action),
+      "~legend": action_legend()
     }
   end
 
@@ -128,20 +143,7 @@ defmodule AshAgentTools.Describe do
   # -- describe_resource ------------------------------------------------
 
   defp fields(resource) do
-    Enum.map(Ash.Resource.Info.attributes(resource), fn attribute ->
-      %{
-        name: attribute.name,
-        type: Types.normalize(attribute.type),
-        constraints: constraints(attribute.constraints),
-        allow_nil?: attribute.allow_nil?,
-        default: default_value(attribute.default),
-        primary_key?: Map.get(attribute, :primary_key?, false),
-        sensitive?: Map.get(attribute, :sensitive?, false),
-        public?: Map.get(attribute, :public?, false),
-        description: Map.get(attribute, :description),
-        source: Source.from_entity(attribute)
-      }
-    end)
+    Enum.map(Ash.Resource.Info.attributes(resource), &attribute_info(resource, &1))
   end
 
   defp relationships(resource) do
@@ -214,6 +216,7 @@ defmodule AshAgentTools.Describe do
         type: action.type,
         description: Map.get(action, :description),
         accept: accept(action),
+        accepts: accept(action),
         arguments: Enum.map(action.arguments, &argument_info/1),
         source: Source.from_entity(action)
       }
@@ -244,6 +247,27 @@ defmodule AshAgentTools.Describe do
     }
   end
 
+  # The field entry shape, shared by describe_resource's `fields` and
+  # describe_action's `input.attributes` so an agent reads one shape twice,
+  # not two shapes once. Carries the `~extension` provenance marker: fields
+  # injected by extension transformers (or declared outside the resource's
+  # own source file) must not read as mysteries.
+  defp attribute_info(resource, attribute) do
+    %{
+      name: attribute.name,
+      type: Types.normalize(attribute.type),
+      constraints: constraints(attribute.constraints),
+      allow_nil?: attribute.allow_nil?,
+      default: default_value(attribute.default),
+      primary_key?: Map.get(attribute, :primary_key?, false),
+      sensitive?: Map.get(attribute, :sensitive?, false),
+      public?: Map.get(attribute, :public?, false),
+      description: Map.get(attribute, :description),
+      source: Source.from_entity(attribute),
+      "~extension": extension_injected?(resource, attribute)
+    }
+  end
+
   # The union of action arguments and accepted attributes, split into what an
   # agent *must* provide and what it *may* provide. On :create, accepted
   # attributes without a default that disallow nil are required; on the other
@@ -267,6 +291,11 @@ defmodule AshAgentTools.Describe do
       # constraints are visible in validate's `expected` block too — the
       # plain `required` name list cannot carry them.
       arguments: Enum.map(arguments, &argument_info/1),
+      # Full attribute entries for everything `accept` allows. Required
+      # create attributes appear in `required` as bare names; without this
+      # list their type/constraints/defaults are invisible in the action
+      # report and an agent must describe the whole resource to find them.
+      attributes: Enum.map(attributes, &attribute_info(resource, &1)),
       optional:
         for(
           entry <- arguments ++ attributes,
@@ -371,6 +400,80 @@ defmodule AshAgentTools.Describe do
   # -- shared helpers ---------------------------------------------------
 
   defp accept(action), do: Map.get(action, :accept)
+
+  defp extensions(resource) do
+    resource
+    |> Ash.Resource.Info.extensions()
+    |> Enum.map(&Registry.module_name/1)
+  rescue
+    _ -> []
+  end
+
+  # Best-effort provenance for fields. Spark only annotates entities built
+  # through the DSL macros; entities added by transformers — extensions
+  # injecting shared columns (ash_archival, platform resources, ...) — carry
+  # no annotation at all, and entities declared through a shared mixin macro
+  # carry another file's annotation. Both read as mysteries to an agent
+  # auditing "where does this column come from?", so both are marked.
+  # Anything we cannot determine (no resource compile source, no file in the
+  # annotation) stays unmarked: a wrong positive is worse than no marker.
+  defp extension_injected?(resource, entity) do
+    if relationship_generated?(resource, entity) do
+      false
+    else
+      case Source.from_entity(entity) do
+        nil ->
+          true
+
+        %{file: file} when is_binary(file) ->
+          case Source.from_module(resource) do
+            %{file: own} when is_binary(own) -> file != own
+            _ -> false
+          end
+
+        _ ->
+          false
+      end
+    end
+  end
+
+  # A `belongs_to` declaration generates its foreign-key attribute through a
+  # Spark transformer — no source annotation — but the provenance is the
+  # resource's own relationship line, not an extension. Marking it would be
+  # a false positive that erodes trust in the marker.
+  defp relationship_generated?(resource, entity) do
+    entity.__struct__ == Ash.Resource.Attribute and
+      Enum.any?(Ash.Resource.Info.relationships(resource), fn relationship ->
+        relationship.type == :belongs_to and
+          Map.get(relationship, :source_attribute) == Map.get(entity, :name)
+      end)
+  end
+
+  # The legend keys are prefixed with `~` so they can never collide with a
+  # DSL-derived name, and read as "meta about this report, not about the
+  # resource". One line each, only the non-obvious keys.
+  @shared_legend %{
+    "accept" => "attribute names the action may set; null = Ash's default accept, [] = none",
+    "accepts" => "alias of accept — agents guessing the plural get the same truth",
+    "constraints" => "type constraints, JSON-normalized (one_of, min/max, trim?, ...)",
+    "source" =>
+      "declaration site {file, line, column} from Spark annotations; null = added programmatically",
+    "~extension" =>
+      "true = field injected by an extension/transformer (no source annotation) or declared outside this resource's file; see extensions for candidates"
+  }
+
+  defp resource_legend do
+    Map.merge(@shared_legend, %{
+      "extensions" => "extension modules in use — the candidates for ~extension-injected fields"
+    })
+  end
+
+  defp action_legend do
+    Map.merge(@shared_legend, %{
+      "input.required" =>
+        "names an agent must provide — full detail for every input lives in input.arguments and input.attributes"
+    })
+  end
 
   defp default_value(default), do: Types.to_json_safe(default)
 
