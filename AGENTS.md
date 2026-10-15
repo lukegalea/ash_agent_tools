@@ -25,8 +25,12 @@ open it, these rules from it still apply:
 
 - The tools are read-only. They return plain, JSON-encodable maps and execute
   nothing.
-- The package does not register MCP tools or any other editor-side tool
-  surface. The API is plain functions and Mix tasks.
+- The API is plain functions and Mix tasks. `mix ash_agent.serve` also
+  serves them as MCP tools from a loopback daemon that compiles the host
+  project and never starts it. Tool cards live in
+  `AshAgentTools.Mcp.Cards`; every surface reads them from there.
+- Never turn a client string into an atom. Match module and name arguments
+  against the modules and names that are already loaded.
 - The introspection tasks boot `app.config` and compile only. They never start
   the host application. Only `runtime` boots it.
 - The Mix tasks write pure JSON to stdout. Logger noise stays off stdout unless

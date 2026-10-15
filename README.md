@@ -79,22 +79,43 @@ Both tasks emit **pure JSON on stdout** (application logger noise is
 suppressed; `--verbose` keeps it) so output pipes straight into a JSON
 parser.
 
-## Why plain functions and Mix tasks?
+## How agents reach it
 
-Because that is the pattern upstream accepts for agent-facing libraries:
-**regular, introspectable code plus a `usage-rules.md` file**, which agents
-read and compose themselves — via `project_eval`, Livebook, or the bundled
-Mix tasks. This package deliberately does *not* register MCP tools or any
-other editor-side tool surface (that approach has been rejected upstream;
-see the discussion in [Tidewave PR #215](https://github.com/tidewave/tidewave_phoenix/pull/215)
-for the tool-definition API this package is positioned to map onto).
+The tools are one read-only facade (`AshAgentTools`) with two ways in:
 
-Keeping the API plain has two more benefits:
+- **Plain functions and Mix tasks.** Evaluate the facade from
+  `project_eval`, Livebook or `iex`, or run `mix ash_agent.*` from a shell.
+  Agents learn the API from the bundled `usage-rules.md`. Nothing to
+  register, and nothing in the tool list until an agent needs it.
+- **An MCP daemon.** `mix ash_agent.serve` serves the facade as MCP tools
+  on loopback. It compiles your project and never starts it, so it works
+  whether or not your app or Phoenix is running.
 
-- **Zero context cost.** Agents read one small `usage-rules.md` instead of a
-  tool registry.
-- **Forward compatibility.** Plain data-in/data-out functions wrap trivially
-  into whatever tool-definition mechanism eventually settles.
+Both surfaces return the same JSON-encodable maps, and the daemon's tool
+cards (name, description, input schema) live in one module,
+`AshAgentTools.Mcp.Cards`.
+
+### Where this fits
+
+| | Where it runs | Needs the app started? | Auth | Purpose |
+|---|---|---|---|---|
+| [Tidewave](https://github.com/tidewave-ai/tidewave_phoenix) | Inside the running app, as a plug in the endpoint | Yes | None; local requests only by default | Evaluate code, run SQL, read logs and docs in the running app |
+| [ash_ai](https://github.com/ash-project/ash_ai) dev MCP (`AshAi.Mcp.Dev`) | Inside the running Phoenix endpoint, in the code-reloading block | Yes | None; dev only | Dev tools for agents: list resources, usage rules, generators |
+| ash_ai production MCP (`AshAi.Mcp.Router`) | Your app's router | Yes | OAuth 2.1 or API keys | Exposes your app's own actions to external agents |
+| ash_agent_tools daemon (`mix ash_agent.serve`) | A separate `mix` process | No: it compiles the project and never starts it; Phoenix is not needed | None; loopback only | Read-only introspection: describe, validate, can, forbidden, search, context |
+
+This package does dev-time, read-only introspection of the framework
+contract (what resources, actions, inputs and policies exist, and what they
+would do). It never exposes your application's actions at runtime; that is
+what ash_ai's production MCP server is for.
+
+A note on history: two Tidewave PRs that let packages register their own
+tools ([#237](https://github.com/tidewave-ai/tidewave_phoenix/pull/237),
+[#242](https://github.com/tidewave-ai/tidewave_phoenix/pull/242)) were
+closed without merging. Tidewave has a proof of concept for a tool-definition API
+([#215](https://github.com/tidewave-ai/tidewave_phoenix/pull/215), open as
+of 2026-10-15). The facade functions take and return plain data, so they
+map onto such an API directly if one lands.
 
 ## Features
 
@@ -247,7 +268,10 @@ Keeping the API plain has two more benefits:
   recompiles and invalidates caches behind a serialized reload mutex. Add a
   `"type": "http"` entry pointing at `http://127.0.0.1:4100` to your MCP
   client config. `plug`/`bandit`/`file_system` are optional deps (Phoenix
-  apps already have all three).
+  apps already have all three). Phoenix itself is not needed: a plain Ash
+  project adds `plug` and `bandit` (both `only: :dev`). Without
+  `file_system` the daemon starts without hot reload, and `ash_reload` is
+  the manual refresh.
 
 ## Compile-only boot
 
@@ -268,10 +292,13 @@ is a separate node.
 ```elixir
 def deps do
   [
-    {:ash_agent_tools, "~> 0.1"}
+    {:ash_agent_tools, github: "lukegalea/ash_agent_tools", only: :dev, runtime: false}
   ]
 end
 ```
+
+Install it from GitHub. The hex package named `ash_agent_tools` is a
+different, unrelated project.
 
 Ash (`~> 3.0`) is the only runtime dependency besides `jason`,
 `telemetry`, and `sourceror` (precise AST ranges for the edit tools; small,

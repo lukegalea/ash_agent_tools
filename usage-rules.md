@@ -11,11 +11,11 @@ and tells you how to use all of that in-VM
 without a mix boot. Concept-specific capabilities (compliance rules, state
 machines) ride behind optional dependencies: hosts add the dep, the tools
 activate; absent deps get structured install hints, never crashes. It ships
-as **regular library code plus this file** —
-deliberately *not* as registered MCP tools or any other tool-surface
-integration, which keeps it usable from `project_eval`, Livebook, Mix tasks,
-or any future hosted tool-definition API. Read these rules before using it;
-do not assume prior knowledge of the API.
+as **regular library code plus this file**, usable from `project_eval`,
+Livebook, `iex` and the bundled Mix tasks. The same functions are also
+served as MCP tools by an optional loopback daemon, `mix ash_agent.serve`
+(see "The MCP daemon" below). Read these rules before using it; do not
+assume prior knowledge of the API.
 
 ## The read-only contract
 
@@ -258,8 +258,10 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
   `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`, `ash_rules`,
   `ash_transitions`, `ash_processes`, `ash_process_graph`,
   `ash_process_instance`, `ash_decisions`, `ash_decision_evaluate`,
-  `ash_daemon_status`, `ash_reload`. All read-only —
-  same contract as the facade. There is no
+  `ash_daemon_status`, `ash_reload`. The cards (name, description, input
+  schema) live in `AshAgentTools.Mcp.Cards`. All read-only — same
+  contract as the facade. Module names in arguments are matched against
+  the loaded modules, never converted to atoms. There is no
   edit tool on the daemon: write paths stay in `mix ash_agent.edit` and
   your edit tools.
 - **Boot contract holds:** the daemon compiles the project and loads the
@@ -582,14 +584,21 @@ pattern's certainty — judge context (the compile-time-constant
 
 ## Integration posture
 
-- Do not wrap this package in editor- or server-registered tool surfaces.
-  Package-registered MCP tools have been rejected upstream (Tidewave PRs
-  #237/#242); the accepted pattern is plain code + usage rules, with agents
-  composing calls themselves. If Tidewave's tool-definition API lands
-  (PR #215), each function here maps 1:1 onto a tool definition — adapt
-  then, don't pre-integrate.
+- Two ways in, one facade: plain functions and Mix tasks (evaluate in-VM
+  or run from a shell), or the MCP daemon (`mix ash_agent.serve`), which
+  compiles the project and never starts it. Pick the daemon when an MCP
+  client should call the tools directly; pick the functions when you are
+  already attached to a node.
+- The boundary: dev-time, read-only introspection of the framework
+  contract. Nothing here exposes the application's own actions at
+  runtime — that is ash_ai's production MCP server.
+- Tidewave history, for context: package-registered tools were closed
+  without merging there (PRs #237, #242); a tool-definition API is an open
+  proof of concept (PR #215). The functions take and return plain data, so
+  they map onto such an API directly.
 - If you add agent-facing behavior to this package, keep it read-only and
-  JSON-encodable, and document it here.
+  JSON-encodable, add its card to `AshAgentTools.Mcp.Cards` if it is a
+  daemon tool, and document it here.
 
 ## Known limits
 

@@ -24,7 +24,7 @@ defmodule AshAgentTools do
     tools on loopback).
   * **Forward-compatible.** The API is plain data in, plain maps out. Each
     function maps 1:1 onto a tool with a JSON input schema (see
-    `AshAgentTools.Mcp.Tools` for those cards).
+    `AshAgentTools.Mcp.Cards` for those cards).
 
   ## Primary API
 

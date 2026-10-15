@@ -8,8 +8,9 @@ defmodule AshAgentTools.MixProject do
   @version "0.1.0"
   @description """
   Read-only Ash introspection for AI agents: describe resources and actions,
-  validate inputs, and explain authorization. Ships as plain modules and Mix
-  tasks plus usage rules, so agents compose the tools themselves.
+  validate inputs, and explain and evaluate authorization without running
+  anything. Ships as plain modules, Mix tasks and usage rules, plus an
+  optional loopback MCP daemon that compiles the project and never starts it.
   """
 
   def project do
@@ -64,11 +65,10 @@ defmodule AshAgentTools.MixProject do
       # projects' dependency graphs via igniter.
       {:sourceror, "~> 1.2"},
 
-      # Pure-Elixir SAT solver, needed to verify the policies of the
-      # test-only resource that exercises `explain_forbidden/2`.
-      # Production users of Ash.Policy.Authorizer choose their own solver
-      # (picosat_elixir is the usual pick) — this package itself never
-      # evaluates policies.
+      # Pure-Elixir SAT solver for the test resources' policies
+      # (`explain_forbidden/2`, `can/4`). Hosts using Ash.Policy.Authorizer
+      # already ship their own solver (picosat_elixir is the usual pick), and
+      # `can/4` evaluates policies with whichever one the host has.
       {:simple_sat, "~> 0.1", only: [:dev, :test]},
 
       # Optional BEAM runtime introspection backend for
