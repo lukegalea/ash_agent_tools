@@ -89,7 +89,9 @@ compile-time-constant `String.to_atom` is the documented exception).
 ### Security
 
 - **#10 — No `String.to_atom` on user input.** The atom table never GCs:
-  DoS. `String.to_existing_atom/1` or a fixed allow-list.
+  DoS. `String.to_existing_atom/1` or a fixed allow-list. The same holds
+  for `List.to_atom/1`, `:erlang.list_to_atom/1` and
+  `:erlang.binary_to_atom/2`; the judge flags all four.
 - **#11 — Authorize in EVERY `handle_event`.** An event handler is a public
   endpoint; route through Ash actions with policies or check `Ash.can?`.
 - **#12 — Never `raw/1` untrusted content.** `raw/1` marks content safe
