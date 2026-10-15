@@ -25,10 +25,14 @@ do not assume prior knowledge of the API.
   through the project's own code interfaces or `Ash.*` calls.
 - **Nothing is loaded for you.** Discovery (`list_domains/0`,
   `list_resources/0`) sees *loaded* modules only. Compiled-but-unloaded
-  modules are invisible. Prefer the Mix tasks (they compile and load the
-  domains configured under `config :my_app, ash_domains: [...]`, plus their
-  resources, without starting the application) or ensure the modules are
-  loaded before introspecting.
+  modules are invisible. Prefer the introspection Mix tasks (`describe`,
+  `validate`, `can`, `search`, `context`, `rules`, `transitions`, `graph`,
+  `decisions`, `serve` and the others that declare `app.config`): they
+  compile and load the domains configured under
+  `config :my_app, ash_domains: [...]`, plus their resources, without
+  starting the application. `mix ash_agent.runtime` is the exception and
+  runs `app.start` (see below); `laws`, `diff` and `gaps` boot nothing.
+  Otherwise, ensure the modules are loaded before introspecting.
 - **Functions raise `ArgumentError`** when pointed at a non-resource or an
   unknown action; discovery functions never raise.
 
