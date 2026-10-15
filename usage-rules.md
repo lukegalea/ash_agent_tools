@@ -25,8 +25,10 @@ do not assume prior knowledge of the API.
   through the project's own code interfaces or `Ash.*` calls.
 - **Nothing is loaded for you.** Discovery (`list_domains/0`,
   `list_resources/0`) sees *loaded* modules only. Compiled-but-unloaded
-  modules are invisible. Prefer the Mix tasks (they run `app.start` first)
-  or ensure the modules are loaded before introspecting.
+  modules are invisible. Prefer the Mix tasks (they compile and load the
+  domains configured under `config :my_app, ash_domains: [...]`, plus their
+  resources, without starting the application) or ensure the modules are
+  loaded before introspecting.
 - **Functions raise `ArgumentError`** when pointed at a non-resource or an
   unknown action; discovery functions never raise.
 
@@ -36,7 +38,15 @@ do not assume prior knowledge of the API.
 2. **Describe**: `describe_resource/1` for fields, relationships, actions
    (with argument types and source locations); `describe_action/2` for the
    exact input contract (`required` / `optional` / `private` keys with
-   normalized types), return shape, and code interfaces.
+   normalized types), return shape, and code interfaces. Both reports carry
+   a top-level `"~legend"` map explaining their non-obvious keys. `accepts`
+   is an alias of `accept` on every action entry. `describe_action/2` also
+   lists every accepted attribute in full under `input.attributes` (type,
+   constraints, `allow_nil?`, default). Fields carry a `"~extension"` marker
+   (`true` when the field has no source annotation or was declared outside
+   the resource's own file, i.e. injected by an extension or transformer;
+   `belongs_to` foreign keys are not marked), and `describe_resource/1`
+   lists the resource's `extensions` as the candidates.
 3. **Validate before you act**: `validate_input/3` casts each param with
    `Ash.Type.cast_input/3` — the same machinery Ash uses at runtime — and
    returns `%{valid?, errors, normalized_inputs, expected}`. Check
@@ -242,7 +252,9 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
 
 - **Tools:** `ash_describe` (no args → discovery summary), `ash_validate`,
   `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`, `ash_rules`,
-  `ash_transitions`, `ash_daemon_status`, `ash_reload`. All read-only —
+  `ash_transitions`, `ash_processes`, `ash_process_graph`,
+  `ash_process_instance`, `ash_decisions`, `ash_decision_evaluate`,
+  `ash_daemon_status`, `ash_reload`. All read-only —
   same contract as the facade. There is no
   edit tool on the daemon: write paths stay in `mix ash_agent.edit` and
   your edit tools.
