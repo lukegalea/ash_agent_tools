@@ -37,9 +37,15 @@ defmodule AshAgentTools.Mcp.Tools do
   action, or search term becomes
   `{:error, %{error: message, did_you_mean: candidates}}` — never a raised
   crash out of the daemon.
+
+  Module names in arguments are client input, so they are never converted
+  to atoms: each is matched by name against the modules already known for
+  its kind (loaded resources and the resources their domains list, loaded
+  domains, loaded rule sets). An unknown name is a structured error.
   """
 
   alias AshAgentTools.Describe
+  alias AshAgentTools.Mcp.Cards
   alias AshAgentTools.Registry
   alias AshAgentTools.Suggest
 
@@ -56,314 +62,16 @@ defmodule AshAgentTools.Mcp.Tools do
 
   @doc """
   The tool cards served by `tools/list`: name, description, and JSON Schema
-  input schemas.
+  input schemas. They live in `AshAgentTools.Mcp.Cards`.
   """
   @spec tool_cards() :: [map()]
-  def tool_cards do
-    [
-      card(
-        "ash_describe",
-        "Describe Ash resources and actions: fields, relationships, actions, " <>
-          "the arguments and input contract each action accepts, types, and " <>
-          "source locations. With no arguments, returns the discovery summary " <>
-          "(loaded domains and resources). Read-only.",
-        %{
-          "resource" => %{
-            type: "string",
-            description:
-              "Resource module name, e.g. \"MyApp.Post\". Omit for the discovery summary."
-          },
-          "action" => %{
-            type: "string",
-            description: "Action name to describe a single action's input contract."
-          }
-        },
-        []
-      ),
-      card(
-        "ash_validate",
-        "Validate params against an Ash resource action WITHOUT executing it: " <>
-          "casts every value the way Ash does, reports unknown/missing keys and " <>
-          "cast errors. Nothing runs, nothing touches a data layer.",
-        %{
-          "resource" => %{
-            type: "string",
-            description: "Resource module name, e.g. \"MyApp.Post\"."
-          },
-          "action" => %{type: "string", description: "Action name, e.g. \"create\"."},
-          "params" => %{
-            type: "object",
-            description: "The input to validate (JSON object). Defaults to {}.",
-            additionalProperties: true
-          }
-        },
-        ["resource", "action"]
-      ),
-      card(
-        "ash_can",
-        "Answer whether an actor can perform an Ash action — a policy " <>
-          "verdict WITHOUT executing anything: resolves the actor record, " <>
-          "builds the changeset/query, and evaluates it with Ash.can/3 " <>
-          "(run_queries? disabled, so data-dependent checks come back as " <>
-          "a maybe verdict).",
-        %{
-          "resource" => %{type: "string", description: "Resource module name."},
-          "action" => %{type: "string", description: "Action name, e.g. \"create\"."},
-          "actor" => %{
-            description:
-              "The actor: none (default), MODULE:ID, an object with resource " <>
-                "and id keys, or record (the target record acts)."
-          },
-          "params" => %{
-            type: "object",
-            description: "Optional input the changeset/query would carry.",
-            additionalProperties: true
-          },
-          "record" => %{
-            type: "string",
-            description:
-              "Target record id for update/destroy actions (default: the actor's own record)."
-          }
-        },
-        ["resource", "action"]
-      ),
-      card(
-        "ash_search",
-        "Search attributes, actions, calculations, and relationships across all " <>
-          "loaded Ash resources by name substring (case-insensitive).",
-        %{
-          "term" => %{type: "string", description: "Name substring to search for."},
-          "kinds" => %{
-            type: "array",
-            description: "Restrict the search to these symbol kinds.",
-            items: %{
-              type: "string",
-              enum: Enum.map(AshAgentTools.Search.valid_kinds(), &Atom.to_string/1)
-            }
-          }
-        },
-        ["term"]
-      ),
-      card(
-        "ash_context",
-        "The Ash context for a file position: which loaded Ash resource/domain " <>
-          "declares there, which symbol's span covers the line, and what " <>
-          "references it. One call replaces the grep → read → re-grep loop.",
-        %{
-          "file" => %{type: "string", description: "Repo-relative (or absolute) file path."},
-          "line" => %{type: "integer", description: "1-based line number."}
-        },
-        ["file", "line"]
-      ),
-      card(
-        "ash_forbidden",
-        "Explain what could forbid an Ash action: the resource's authorization " <>
-          "policies in human-readable form. Guidance, not verdicts — use Ash.can? " <>
-          "with a real actor for an actual decision.",
-        %{
-          "resource" => %{type: "string", description: "Resource module name."},
-          "action" => %{
-            type: "string",
-            description: "Action name (optional; all policies when omitted)."
-          }
-        },
-        ["resource"]
-      ),
-      card(
-        "ash_rules",
-        "AshRules rule-set tooling (requires the optional ash_rules dep; " <>
-          "otherwise returns the structured install hint). No arguments: " <>
-          "list every loaded rule set with fact schemas and rules. With " <>
-          "module/bundle and facts: DRY-evaluate the bundle against fact " <>
-          "triples and return the full result — pure evaluation, zero host state.",
-        %{
-          "module" => %{
-            type: "string",
-            description:
-              "Rule set module name. Omit to list all loaded rule sets (unless bundle is given)."
-          },
-          "bundle" => %{
-            type: "string",
-            description: "Path to a bundle JSON document (alternative to module)."
-          },
-          "facts" => %{
-            type: "array",
-            description:
-              "Fact triples for dry evaluation: objects with subject, predicate and " <>
-                "value keys, or [subject, predicate, value] arrays.",
-            items: %{}
-          }
-        },
-        []
-      ),
-      card(
-        "ash_transitions",
-        "Describe an AshStateMachine resource: states, transitions " <>
-          "(action/from/to), initial states, and the extension's own Mermaid " <>
-          "stateDiagram/flowchart. Requires the optional ash_state_machine dep " <>
-          "(otherwise returns the structured install hint).",
-        %{
-          "resource" => %{type: "string", description: "Resource module name."},
-          "mermaid" => %{
-            type: "boolean",
-            description: "Generate the Mermaid diagrams (default true)."
-          }
-        },
-        ["resource"]
-      ),
-      card(
-        "ash_processes",
-        "List BPMN process definitions per key (requires the optional " <>
-          "ash_bpmn dep; otherwise returns the structured install hint). " <>
-          "Per key: representative version, status, content hash, draft " <>
-          "flag, stored error count, latest published version. The raw xml " <>
-          "is never returned. Read-only.",
-        %{
-          "domain" => %{
-            type: "string",
-            description: "Domain module name. Omit to scan all engine domains."
-          },
-          "key" => %{type: "string", description: "Restrict to one process key."}
-        },
-        []
-      ),
-      card(
-        "ash_process_graph",
-        "One BPMN definition's compiled graph: nodes, flows, joins, " <>
-          "boundaries, plus per-element occupancy digests (requires the " <>
-          "optional ash_bpmn dep). An uncompiled draft renders its stored " <>
-          "compile errors instead of a graph. Read-only.",
-        %{
-          "key" => %{type: "string", description: "Process key."},
-          "version" => %{
-            type: "integer",
-            description: "Pin one version (default: latest published)."
-          },
-          "draft" => %{
-            type: "boolean",
-            description: "Look at the key's draft instead (default false)."
-          },
-          "domain" => %{type: "string", description: "Domain module name."},
-          "include_elements" => %{
-            type: "boolean",
-            description: "Include the per-element occupancy digests (default true)."
-          }
-        },
-        ["key"]
-      ),
-      card(
-        "ash_process_instance",
-        "What is in flight in the BPMN engine: instances, their tokens " <>
-          "(interpreted against the pinned definition), and open human tasks " <>
-          "with candidates. Correlation keys stay digested unless explicitly " <>
-          "requested. Read-only: nothing is completed or advanced (requires " <>
-          "the optional ash_bpmn dep).",
-        %{
-          "instance_id" => %{type: "string", description: "One instance."},
-          "subject_type" => %{type: "string", description: "Instances of this subject type."},
-          "subject_id" => %{type: "string", description: "With subject_type: pin the subject."},
-          "definition_key" => %{type: "string", description: "Instances of one process key."},
-          "statuses" => %{
-            type: "array",
-            description: "Instance statuses to include (default [running]).",
-            items: %{
-              type: "string",
-              enum: ["running", "completed", "failed", "errored", "cancelled", "superseded"]
-            }
-          },
-          "include_children" => %{
-            type: "boolean",
-            description: "Follow call-activity children (default true)."
-          },
-          "include_correlation_keys" => %{
-            type: "boolean",
-            description: "Emit correlation keys in the clear (default false — digested)."
-          },
-          "actor" => %{type: "string", description: "Actor as MODULE:ID (reads thread it)."},
-          "scope" => %{
-            type: "string",
-            enum: ["engine"],
-            description: "Force the engine scope even with an actor given."
-          }
-        },
-        []
-      ),
-      card(
-        "ash_decisions",
-        "List DMN decision definitions per key: the AshDecisions.Catalogue " <>
-          "projection — status, draft flag, latest published version, and the " <>
-          "decisions each document declares (requires the optional " <>
-          "ash_decisions dep). Stored verification available per request; the " <>
-          "Verifier is not re-run. Read-only.",
-        %{
-          "domain" => %{
-            type: "string",
-            description: "Domain module name. Omit to scan all decision domains."
-          },
-          "key" => %{type: "string", description: "Restrict to one decision key."},
-          "graph" => %{
-            type: "boolean",
-            description: "Include the stored graph snapshot of the representative document."
-          },
-          "verification" => %{
-            type: "boolean",
-            description: "Include the stored publish-time verification attribute as-is."
-          }
-        },
-        []
-      ),
-      card(
-        "ash_decision_evaluate",
-        "Dry-evaluate a DMN decision against inputs — a designer preview " <>
-          "with record: false hard-coded, so no Evaluation row is ever " <>
-          "written (requires the optional ash_decisions dep). Published by " <>
-          "default; drafts only via the explicit draft flag.",
-        %{
-          "key" => %{type: "string", description: "Decision definition key."},
-          "inputs" => %{
-            type: "object",
-            description: "The decision inputs (JSON object).",
-            additionalProperties: true
-          },
-          "decision" => %{
-            type: "string",
-            description: "Decision name, when the document declares more than one."
-          },
-          "version" => %{
-            type: "integer",
-            description: "Pin one version (default: latest published)."
-          },
-          "draft" => %{
-            type: "boolean",
-            description: "Evaluate the key's draft instead (default false)."
-          },
-          "domain" => %{type: "string", description: "Domain module name."}
-        },
-        ["key", "inputs"]
-      ),
-      card(
-        "ash_daemon_status",
-        "The daemon's own status: boot/compile times, reload count, loaded " <>
-          "domain and resource counts, describe-cache size, BEAM memory.",
-        %{},
-        []
-      ),
-      card(
-        "ash_reload",
-        "Manually reload the compiled context: re-run the compile-only boot, " <>
-          "refresh discovery, invalidate caches. The backstop when the file " <>
-          "watcher missed a change.",
-        %{},
-        []
-      )
-    ]
-  end
+  def tool_cards, do: Cards.all()
 
   @doc """
   The tool names served, as strings.
   """
   @spec tool_names() :: [String.t()]
-  def tool_names, do: Enum.map(tool_cards(), & &1.name)
+  def tool_names, do: Cards.names()
 
   @doc """
   Dispatches a `tools/call`: `{"name" => tool, "arguments" => args}` (JSON,
@@ -438,13 +146,13 @@ defmodule AshAgentTools.Mcp.Tools do
   # The list-shaped tools: a domain argument is optional, an empty report is
   # a valid answer.
   defp processes(args) do
-    with {:ok, domain} <- optional_resource(args["domain"]) do
+    with {:ok, domain} <- optional_module(args["domain"], :domain) do
       {:ok, AshAgentTools.processes(domain, key: args["key"])}
     end
   end
 
   defp decisions(args) do
-    with {:ok, domain} <- optional_resource(args["domain"]) do
+    with {:ok, domain} <- optional_module(args["domain"], :domain) do
       {:ok,
        AshAgentTools.decisions(domain,
          key: args["key"],
@@ -455,12 +163,13 @@ defmodule AshAgentTools.Mcp.Tools do
   end
 
   defp process_graph(%{} = args) do
-    with {:ok, key} <- required_string(args["key"], "key") do
+    with {:ok, key} <- required_string(args["key"], "key"),
+         {:ok, domain} <- optional_module(args["domain"], :domain) do
       safely(nil, nil, fn ->
         AshAgentTools.process_graph(key,
           version: args["version"],
           draft: args["draft"] == true,
-          domain: args["domain"],
+          domain: domain,
           include_elements: args["include_elements"] != false
         )
       end)
@@ -531,13 +240,14 @@ defmodule AshAgentTools.Mcp.Tools do
 
   defp decision_evaluate(%{} = args) do
     with {:ok, key} <- required_string(args["key"], "key"),
+         {:ok, domain} <- optional_module(args["domain"], :domain),
          :ok <- check_params(args["inputs"]) do
       safely(nil, nil, fn ->
         AshAgentTools.decision_evaluate(key, args["inputs"] || %{},
           decision: args["decision"],
           version: args["version"],
           draft: args["draft"] == true,
-          domain: args["domain"]
+          domain: domain
         )
       end)
     end
@@ -584,7 +294,7 @@ defmodule AshAgentTools.Mcp.Tools do
   # -- tools ---------------------------------------------------------------
 
   defp describe(%{} = args) do
-    with {:ok, resource} <- optional_resource(args["resource"]),
+    with {:ok, resource} <- optional_module(args["resource"], :resource),
          {:ok, action} <- optional_string(args["action"], "action") do
       case {resource, action} do
         {nil, _} ->
@@ -600,7 +310,7 @@ defmodule AshAgentTools.Mcp.Tools do
   end
 
   defp validate(%{} = args) do
-    with {:ok, module} <- required_resource(args["resource"]),
+    with {:ok, module} <- required_module(args["resource"], :resource),
          {:ok, action} <- required_string(args["action"], "action"),
          :ok <- check_params(args["params"]) do
       params = args["params"] || %{}
@@ -625,7 +335,7 @@ defmodule AshAgentTools.Mcp.Tools do
   end
 
   defp forbidden(%{} = args) do
-    with {:ok, module} <- required_resource(args["resource"]) do
+    with {:ok, module} <- required_module(args["resource"], :resource) do
       safely(module, args["action"], fn ->
         AshAgentTools.explain_forbidden(module, args["action"])
       end)
@@ -633,7 +343,7 @@ defmodule AshAgentTools.Mcp.Tools do
   end
 
   defp can(%{} = args) do
-    with {:ok, module} <- required_resource(args["resource"]),
+    with {:ok, module} <- required_module(args["resource"], :resource),
          {:ok, action} <- required_string(args["action"], "action"),
          {:ok, actor} <- parse_actor(args["actor"]),
          {:ok, record} <- optional_record(args["record"]),
@@ -679,7 +389,7 @@ defmodule AshAgentTools.Mcp.Tools do
   end
 
   defp rules(%{"module" => module}) when module != nil do
-    with {:ok, module} <- required_resource(module) do
+    with {:ok, module} <- required_module(module, :rule_set) do
       safely(module, nil, fn -> AshAgentTools.Rules.describe(module) end)
     end
   end
@@ -693,10 +403,10 @@ defmodule AshAgentTools.Mcp.Tools do
     end
   end
 
-  # A string "module" is a rule set module name (resolved to its atom); a
-  # "bundle" stays a path — the impl reads the document itself.
+  # A string "module" is a rule set module name, matched against the loaded
+  # rule sets; a "bundle" stays a path — the impl reads the document itself.
   defp rules_subject(module, _bundle) when is_binary(module) do
-    case required_resource(module) do
+    case required_module(module, :rule_set) do
       {:ok, resolved} -> {:ok, resolved}
       {:error, _} = error -> error
     end
@@ -718,7 +428,7 @@ defmodule AshAgentTools.Mcp.Tools do
        %{error: "\"facts\" must be an array of triples, got: #{inspect(other)}", did_you_mean: []}}
 
   defp transitions(%{} = args) do
-    with {:ok, module} <- required_resource(args["resource"]) do
+    with {:ok, module} <- required_module(args["resource"], :resource) do
       safely(module, nil, fn ->
         AshAgentTools.transitions(module, mermaid: args["mermaid"] != false)
       end)
@@ -727,32 +437,81 @@ defmodule AshAgentTools.Mcp.Tools do
 
   # -- argument plumbing -----------------------------------------------------
 
-  # An absent resource argument is legal (it selects the discovery summary);
-  # a present one must resolve to a loaded Ash module.
-  defp optional_resource(nil), do: {:ok, nil}
+  # Module arguments arrive as client strings. They never become atoms
+  # (iron law #10): each is matched by name against the modules already
+  # known for its kind, and a miss is a structured error. An absent module
+  # argument is legal where the tool has a no-argument mode (the discovery
+  # summary, all domains).
+  defp optional_module(nil, _kind), do: {:ok, nil}
 
-  defp optional_resource(name), do: required_resource(name)
+  defp optional_module(name, kind), do: required_module(name, kind)
 
-  defp required_resource(name) when is_binary(name) do
-    module = Module.concat([name])
+  defp required_module(name, kind) when is_binary(name) do
+    target = String.replace_prefix(name, "Elixir.", "")
+    candidates = known_modules(kind)
 
-    case Code.ensure_loaded(module) do
-      {:module, ^module} ->
-        {:ok, module}
-
-      {:error, _reason} ->
-        {:error,
-         %{
-           error: "Cannot load #{inspect(name)}: not a loaded module. #{resource_hint(name)}",
-           did_you_mean: resource_did_you_mean(name)
-         }}
+    case Enum.find(candidates, &(Registry.module_name(&1) == target)) do
+      nil -> {:error, unknown_module_error(name, kind, candidates)}
+      module -> {:ok, module}
     end
   end
 
-  defp required_resource(other) do
+  defp required_module(other, kind) do
     {:error,
-     %{error: "resource must be a string module name, got: #{inspect(other)}", did_you_mean: []}}
+     %{
+       error: "#{kind_label(kind)} must be a string module name, got: #{inspect(other)}",
+       did_you_mean: []
+     }}
   end
+
+  # Resources listed by a loaded domain count even before the resource
+  # module itself is loaded: the domain already names it.
+  defp known_modules(:resource) do
+    domain_resources = Enum.flat_map(AshAgentTools.list_domains(), &Ash.Domain.Info.resources/1)
+
+    Enum.uniq(AshAgentTools.list_resources() ++ domain_resources)
+  end
+
+  defp known_modules(:domain), do: AshAgentTools.list_domains()
+
+  defp known_modules(:rule_set),
+    do: Registry.loaded_modules_matching(&function_exported?(&1, :__bundle__, 0))
+
+  defp unknown_module_error(name, :resource, _candidates) do
+    %{
+      error: "#{inspect(name)} is not a loaded Ash resource. #{resource_hint(name)}",
+      did_you_mean: resource_did_you_mean(name)
+    }
+  end
+
+  defp unknown_module_error(name, :domain, candidates) do
+    %{
+      error: "#{inspect(name)} is not a loaded Ash domain.",
+      did_you_mean: Suggest.closest(name, Enum.map(candidates, &Registry.module_name/1))
+    }
+  end
+
+  # Without the optional dep, the install hint is the more useful answer.
+  defp unknown_module_error(name, :rule_set, candidates) do
+    names = Enum.map(candidates, &Registry.module_name/1)
+
+    error =
+      if AshAgentTools.Availability.active?(:ash_rules) do
+        "#{inspect(name)} is not a loaded AshRules rule set. Loaded rule sets: #{inspect(names)}"
+      else
+        try do
+          AshAgentTools.Availability.ensure_active!(:ash_rules)
+        rescue
+          error in ArgumentError -> Exception.message(error)
+        end
+      end
+
+    %{error: error, did_you_mean: Suggest.closest(name, names)}
+  end
+
+  defp kind_label(:resource), do: "resource"
+  defp kind_label(:domain), do: "domain"
+  defp kind_label(:rule_set), do: "module"
 
   defp required_string(value, _key) when is_binary(value), do: {:ok, value}
 
@@ -796,16 +555,24 @@ defmodule AshAgentTools.Mcp.Tools do
 
   defp parse_actor(actor) when is_binary(actor) do
     case String.split(actor, ":", parts: 2) do
-      [resource, id] -> {:ok, %{"resource" => resource, "id" => id}}
+      [resource, id] -> actor_spec(resource, id)
       _ -> {:error, actor_spec_error(actor)}
     end
   end
 
-  defp parse_actor(%{"resource" => resource, "id" => id} = spec)
+  defp parse_actor(%{"resource" => resource, "id" => id})
        when is_binary(resource) and (is_binary(id) or is_number(id)),
-       do: {:ok, Map.take(spec, ["resource", "id"])}
+       do: actor_spec(resource, id)
 
   defp parse_actor(other), do: {:error, actor_spec_error(other)}
+
+  # The actor's resource resolves like any other module argument, so the
+  # facade receives a module, never a string it would have to convert.
+  defp actor_spec(resource, id) do
+    with {:ok, module} <- required_module(resource, :resource) do
+      {:ok, %{resource: module, id: id}}
+    end
+  end
 
   defp actor_spec_error(other) do
     %{
@@ -948,18 +715,5 @@ defmodule AshAgentTools.Mcp.Tools do
     else
       "No loaded Ash resources matched."
     end
-  end
-
-  defp card(name, description, properties, required) do
-    %{
-      name: name,
-      description: description,
-      inputSchema: %{
-        type: "object",
-        properties: properties,
-        required: required,
-        additionalProperties: false
-      }
-    }
   end
 end

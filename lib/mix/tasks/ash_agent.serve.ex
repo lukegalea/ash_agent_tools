@@ -7,9 +7,10 @@ defmodule Mix.Tasks.AshAgent.Serve do
 
   @moduledoc """
   Starts the supervised MCP daemon: a loopback HTTP endpoint exposing the
-  `AshAgentTools` facade as MCP tools (`ash_describe`, `ash_validate`,
-  `ash_search`, `ash_context`, `ash_forbidden`, `ash_daemon_status`,
-  `ash_reload`), then blocks until interrupted.
+  `AshAgentTools` facade as MCP tools, then blocks until interrupted.
+
+  The tools (read from `AshAgentTools.Mcp.Cards`):
+  #{Enum.map_join(AshAgentTools.Mcp.Cards.names(), ", ", &"`#{&1}`")}.
 
   **Boot contract: compile, don't start** — the same contract as the other
   `ash_agent` tasks. The daemon configures and compiles the project and
@@ -91,7 +92,7 @@ defmodule Mix.Tasks.AshAgent.Serve do
       watch:  #{if cfg.watch?, do: "hot reload on lib/ + config/ changes", else: "disabled (--no-watch)"}
       loaded: #{length(domains)} domain(s), #{length(resources)} resource(s)
 
-      tools:  ash_describe, ash_validate, ash_search, ash_context, ash_forbidden, ash_daemon_status, ash_reload
+      tools:  #{Enum.join(AshAgentTools.Mcp.Cards.names(), ", ")}
 
     Point your MCP client at http://#{ip_string(cfg.ip)}:#{cfg.port} (e.g. a "type": "http" .mcp.json entry).
     Press Ctrl-C to stop.

@@ -44,7 +44,7 @@ defmodule AshAgentTools.Mcp.ToolsTest do
     test "a short-name resource miss suggests the full module name" do
       {:error, error} = Tools.call("ash_describe", %{"resource" => "Post"})
 
-      assert error.error =~ "not a loaded module"
+      assert error.error =~ "not a loaded Ash resource"
       assert "AshAgentTools.Test.Post" in error.did_you_mean
     end
 
@@ -254,6 +254,88 @@ defmodule AshAgentTools.Mcp.ToolsTest do
 
       assert error.error =~ "runtime is not started"
       assert error.hint =~ "mix ash_agent.serve"
+    end
+  end
+
+  describe "module arguments never create atoms (iron law #10)" do
+    # Each call passes a module name nobody has ever spelled, then checks the
+    # atom table: a client string must be matched against known modules, not
+    # converted.
+    defp fresh_name, do: "NeverSeen.Mod#{System.unique_integer([:positive])}"
+
+    defp refute_atom(name) do
+      assert_raise ArgumentError, fn -> String.to_existing_atom("Elixir." <> name) end
+      assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+    end
+
+    test "resource arguments on every resource tool" do
+      for tool <- ~w(ash_describe ash_validate ash_can ash_forbidden ash_transitions) do
+        name = fresh_name()
+
+        assert {:error, error} =
+                 Tools.call(tool, %{"resource" => name, "action" => "create"})
+
+        assert error.error =~ "not a loaded Ash resource"
+        refute_atom(name)
+      end
+    end
+
+    test "the ash_can actor resource, in both spellings" do
+      name = fresh_name()
+
+      assert {:error, error} =
+               Tools.call("ash_can", %{
+                 "resource" => "AshAgentTools.Test.User",
+                 "action" => "update",
+                 "actor" => name <> ":1"
+               })
+
+      assert error.error =~ "not a loaded Ash resource"
+      refute_atom(name)
+
+      name = fresh_name()
+
+      assert {:error, _} =
+               Tools.call("ash_can", %{
+                 "resource" => "AshAgentTools.Test.User",
+                 "action" => "update",
+                 "actor" => %{"resource" => name, "id" => "1"}
+               })
+
+      refute_atom(name)
+    end
+
+    test "domain arguments on the BPMN and decision tools" do
+      for {tool, args} <- [
+            {"ash_processes", %{}},
+            {"ash_decisions", %{}},
+            {"ash_process_graph", %{"key" => "k"}},
+            {"ash_decision_evaluate", %{"key" => "k", "inputs" => %{}}}
+          ] do
+        name = fresh_name()
+
+        assert {:error, error} = Tools.call(tool, Map.put(args, "domain", name))
+        assert error.error =~ "not a loaded Ash domain"
+        refute_atom(name)
+      end
+    end
+
+    test "the ash_rules module argument, alone and with facts" do
+      name = fresh_name()
+      assert {:error, error} = Tools.call("ash_rules", %{"module" => name})
+      assert error.error =~ "not a loaded AshRules rule set"
+      refute_atom(name)
+
+      name = fresh_name()
+      assert {:error, _} = Tools.call("ash_rules", %{"module" => name, "facts" => []})
+      refute_atom(name)
+    end
+
+    test "known modules still resolve, with or without the Elixir. prefix" do
+      assert {:ok, report} =
+               Tools.call("ash_describe", %{"resource" => "Elixir.AshAgentTools.Test.Post"})
+
+      assert report.module == AshAgentTools.Test.Post
     end
   end
 
