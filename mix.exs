@@ -103,10 +103,6 @@ defmodule AshAgentTools.MixProject do
       # temporal facts fragment. Without the dep, extraction and spans
       # still work and the digest functions raise the "add the dep" error.
       {:ash_judgments, github: "lukegalea/ash_judgments", optional: true},
-      # ash_judgments 0.3.0 imports Telemetry.Metrics in a function body, so
-      # it does not compile without this (its own optional) dependency
-      # (lukegalea/ash_judgments#6).
-      {:telemetry_metrics, "~> 1.0", only: [:dev, :test]},
 
       # Test workhorse: the ash_bpmn/ash_decisions resource macros are
       # AshPostgres by construction (`repo:` is a required option), so the
