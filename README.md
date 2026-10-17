@@ -335,7 +335,12 @@ out of discovery.
   projection. `chunk/3` splits units that would not fit the decision
   model's context (1,024 tokens by default), and
   `AshAgentTools.CodeSubjects.Fragment` is the subject resource a host
-  declares its questions on.
+  declares its questions on. `mix ash_agent.subjects` prints subjects as
+  JSON; `mix ash_agent.seeds` seeds labels for a standard from the laws
+  judge (and a reviewed iron-laws baseline) and from fix commits;
+  `CodeSubjects.Standing` re-scans a checkout and returns the units whose
+  facts are stale or missing; `CodeSubjects.Advisory` builds a review
+  comment whose iron-laws section is the judge's output, untouched.
 
 - **MCP daemon** — `mix ash_agent.serve` starts a supervised, loopback-only
   MCP server (POST-only JSON-RPC over HTTP on `127.0.0.1:4100`, stateless,

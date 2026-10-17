@@ -628,6 +628,27 @@ AshAgentTools.CodeSubjects.chunk(subject, projection)         # line-aligned chu
   paths; an option with a literal atom value (`strategy :context`) is
   addressed as an entity too.
 
+### Standards over code: seeds, the standing re-scan, the advisory review
+
+- `mix ash_agent.subjects ROOT` prints the subjects as JSON (`--kind`,
+  `--context`, `--diff -`, `--commits RANGE`, `--chunk`, `--locate
+  PATH:LINE`, `--summary`). Pure text processing: nothing boots.
+- `mix ash_agent.seeds ROOT --standards FILE` (`CodeSubjects.Seeds`) seeds
+  labels for a standard from two deterministic sources. The laws judge
+  gives positives where a detector exists, and a reviewed iron-laws
+  baseline (`scripts/iron-laws.baseline.json`) turns excused hits into
+  person-reviewed negatives. Fix commits give before/after pairs, marked
+  `weak`. Seeds are candidates for a person, not verdicts.
+- `CodeSubjects.Standing.assess/4` is the standing re-scan: scan, digest
+  under the question's projection, read the facts, and return the units to
+  judge next (stale and new). `statuses/4` rolls chunk facts up to their
+  unit with `CodeSubjects.roll_up/2`; an unknown chunk never folds into
+  either side.
+- `CodeSubjects.Advisory.review/3` assembles a review comment. The `laws`
+  section is `Laws.judge/2`'s output untouched, the model findings sit in
+  a separate advisory section, and nothing there changes a deterministic
+  report or exit status (ADR 0045).
+
 ## Integration posture
 
 - Three ways in, one facade: plain functions and Mix tasks (evaluate

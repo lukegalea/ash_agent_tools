@@ -709,6 +709,57 @@ defmodule AshAgentTools.CodeSubjects do
   defp chunk_location(%{path: nil} = subject, _line), do: subject.location
   defp chunk_location(subject, line), do: "#{subject.path}:#{line}"
 
+  # -- roll-up ---------------------------------------------------------------------
+
+  @doc """
+  Rolls the three-valued statuses of a unit's chunks up to the unit.
+
+  Each status is what `AshJudgments.Query.status/4` returns for one chunk
+  (`{:in, fact}`, `{:out, fact}`, `{:unknown, reason}`) or the bare
+  `:in` / `:out`. `mode` says how the chunks combine:
+
+    * `:any` — the predicate holds of the unit when it holds of any chunk
+      ("this function contains a policy check that queries"): `:in` if any
+      chunk is in, `:out` only when every chunk is out
+    * `:all` — the predicate holds only when it holds of every chunk
+      ("every paragraph says the thing first"): `:out` if any chunk is out,
+      `:in` only when every chunk is in
+
+  Anything else is `{:unknown, reasons}`, with the chunks' unknown reasons:
+  an unknown chunk never folds into either side.
+
+      iex> AshAgentTools.CodeSubjects.roll_up([:out, {:unknown, :stale}, :in], :any)
+      :in
+      iex> AshAgentTools.CodeSubjects.roll_up([:out, {:unknown, :stale}], :any)
+      {:unknown, [:stale]}
+      iex> AshAgentTools.CodeSubjects.roll_up([:in, :in], :all)
+      :in
+  """
+  @spec roll_up([term()], :any | :all) :: :in | :out | {:unknown, [atom()]}
+  def roll_up(statuses, mode) when mode in [:any, :all] and is_list(statuses) do
+    readings = Enum.map(statuses, &reading/1)
+    {deciding, other} = if mode == :any, do: {:in, :out}, else: {:out, :in}
+    combine(readings, deciding, other)
+  end
+
+  defp combine([], _deciding, _other), do: {:unknown, [:no_fact]}
+
+  defp combine(readings, deciding, other) do
+    unknowns = for {:unknown, reason} <- readings, do: reason
+
+    cond do
+      deciding in readings -> deciding
+      unknowns == [] and Enum.all?(readings, &(&1 == other)) -> other
+      true -> {:unknown, unknowns}
+    end
+  end
+
+  defp reading(:in), do: :in
+  defp reading(:out), do: :out
+  defp reading({:in, _fact}), do: :in
+  defp reading({:out, _fact}), do: :out
+  defp reading({:unknown, reason}), do: {:unknown, reason}
+
   # -- locations ------------------------------------------------------------------
 
   @doc """

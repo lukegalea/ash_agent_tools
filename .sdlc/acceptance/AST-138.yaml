@@ -1,0 +1,39 @@
+---
+# Acceptance criteria for AST-138 (our written engineering standards as
+# declared questions over our own repositories), in the SDLC-49 acceptance
+# schema. This repository carries the tooling half; AC-1 and AC-3 are
+# measured in the host (ash_enterprise) once Luke has confirmed the
+# proposed questions.
+item: AST-138
+
+criteria:
+  - id: AST-138/AC-1
+    given: the confirmed standards questions and a person-labelled held-out split
+    when: the judge's recorded observations are scored against the labels
+    then: per-family precision and recall are reported with n, repository and date
+    verify: eval
+    risk: high
+    test: >-
+      manual — system-one-program/research/ast-138/harness/evaluate.py over the
+      labelled set; pending Luke's confirmation of the questions and the
+      review-queue labels
+
+  - id: AST-138/AC-2
+    given: any source file of this package, as a file and as an added-lines diff
+    when: the advisory review is built with and without model findings
+    then: >-
+      its iron-laws section is byte-identical to AshAgentTools.Laws.judge/2's
+      output in both cases, and the deterministic part of the comment does not change
+    verify: static
+    risk: high
+    test: >-
+      test/code_subjects_standards_test.exs::describe AST-138/AC-2: the laws
+      judge's output is byte-identical with and without the model signal
+
+  - id: AST-138/AC-3
+    given: a standard newly written into its file
+    when: the standards text is re-extracted and the proposal action runs once
+    then: the new clause comes back as proposed questions, unconfirmed and with no band table
+    verify: e2e
+    risk: medium
+    test: manual — system-one-program/research/ast-138 (the proposal run); needs the generative route

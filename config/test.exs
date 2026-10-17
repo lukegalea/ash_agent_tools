@@ -65,7 +65,8 @@ config :junit_formatter,
 # `temporal_safe?/1`, so Ash refuses its `:materialise` create on a temporal
 # resource. Both are pure derivations over the changeset (no clock, no
 # side effects), which is the bar Ash's documented allow-list is for. The
-# code-subject tests materialise facts through it.
+# code-subject tests materialise facts through it. Remove this once
+# lukegalea/ash_judgments#7 declares them.
 config :ash, :temporal_safe_modules, [
   AshJudgments.Facts.Changes.DeriveSubject,
   AshJudgments.Facts.Changes.DeriveScopeHash
