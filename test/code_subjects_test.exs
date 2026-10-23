@@ -381,6 +381,17 @@ defmodule AshAgentTools.CodeSubjectsTest do
         CodeSubjects.chunk(subject, [:module], max_tokens: 120, reserve_tokens: 20)
       end
     end
+
+    test "fit/3 returns that case as an error, and otherwise what chunk/3 returns" do
+      subject = fixture(context: [:module]) |> by_path() |> Map.fetch!("Demo.Ticket.display/1")
+
+      assert CodeSubjects.fit(subject, [:module], max_tokens: 120, reserve_tokens: 20) ==
+               {:error, {:context_too_large, 100}}
+
+      long = long_function_subject(400)
+      assert CodeSubjects.fit(long) == {:ok, CodeSubjects.chunk(long)}
+      assert CodeSubjects.fit(subject, [:module]) == {:ok, [subject]}
+    end
   end
 
   defp long_function_subject(lines \\ 40) do

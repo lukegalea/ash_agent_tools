@@ -26,6 +26,13 @@ if Code.ensure_loaded?(AshJudgments.Query) do
     Units too large for the decision model are judged as chunks
     (`AshAgentTools.CodeSubjects.chunk/3`); `statuses/4` rolls each unit's
     chunk statuses back up with `AshAgentTools.CodeSubjects.roll_up/2`.
+
+    A unit whose declared context alone exceeds the token budget cannot be
+    chunked (`AshAgentTools.CodeSubjects.fit/3`). It does not stop the scan:
+    `assess/4` returns it whole with the reason `:context_too_large`, and
+    `statuses/4` reads it `{:unknown, [:context_too_large]}`. Such a unit is
+    not judgeable at that budget, so the caller reports it rather than
+    sending it to the judge.
     """
 
     alias AshAgentTools.CodeSubjects
@@ -34,6 +41,11 @@ if Code.ensure_loaded?(AshJudgments.Query) do
     The subjects under `root` to judge next for `predicate`: those whose
     facts are missing, stale, expired or below the grade floor, as
     `[{subject, reason}]` (chunks where a unit was chunked).
+
+    Units whose declared context alone exceeds the budget follow, each
+    whole, as `{unit, :context_too_large}`. They are not judgeable at this
+    budget and are never sent to the facts query; `:limit` does not count
+    them.
 
     Options:
 
@@ -50,27 +62,31 @@ if Code.ensure_loaded?(AshJudgments.Query) do
     """
     @spec assess(Path.t(), module(), String.t(), keyword()) :: [{map(), atom()}]
     def assess(root, facts_resource, predicate, opts \\ []) do
-      {_units, judged, current, by_term} = prepare(root, opts)
+      {_units, judged, oversized, current, by_term} = prepare(root, opts)
 
-      facts_resource
-      |> AshJudgments.Query.assess(
-        Enum.map(judged, &CodeSubjects.subject_term(&1, term_opts(opts))),
-        predicate,
-        Keyword.merge(query_opts(opts), current_digests: current, resource: facts_resource)
-      )
-      |> Enum.map(fn {term, reason} -> {Map.fetch!(by_term, term), reason} end)
+      pending =
+        facts_resource
+        |> AshJudgments.Query.assess(
+          Enum.map(judged, &CodeSubjects.subject_term(&1, term_opts(opts))),
+          predicate,
+          Keyword.merge(query_opts(opts), current_digests: current, resource: facts_resource)
+        )
+        |> Enum.map(fn {term, reason} -> {Map.fetch!(by_term, term), reason} end)
+
+      pending ++ Enum.map(oversized, &{&1, :context_too_large})
     end
 
     @doc """
     Every unit's current status for `predicate`, rolled up over its chunks:
-    `[{unit, :in | :out | {:unknown, reasons}}]`.
+    `[{unit, :in | :out | {:unknown, reasons}}]`. A unit whose context
+    cannot fit the budget reads `{:unknown, [:context_too_large]}`.
 
     Takes the options of `assess/4` plus `:mode` (`:any`, the default, or
     `:all`; see `AshAgentTools.CodeSubjects.roll_up/2`).
     """
     @spec statuses(Path.t(), module(), String.t(), keyword()) :: [{map(), term()}]
     def statuses(root, facts_resource, predicate, opts \\ []) do
-      {units, judged, current, _by_term} = prepare(root, opts)
+      {units, judged, oversized, current, _by_term} = prepare(root, opts)
       mode = Keyword.get(opts, :mode, :any)
       query_opts = Keyword.put(query_opts(opts), :current_digests, current)
 
@@ -91,6 +107,7 @@ if Code.ensure_loaded?(AshJudgments.Query) do
 
         {Map.fetch!(units, parent_id(first)), status}
       end)
+      |> Enum.concat(Enum.map(oversized, &{&1, {:unknown, [:context_too_large]}}))
       |> Enum.sort_by(fn {unit, _} -> unit.id end)
     end
 
@@ -105,11 +122,21 @@ if Code.ensure_loaded?(AshJudgments.Query) do
       chunk_opts = Keyword.take(opts, [:max_tokens, :reserve_tokens, :token_count])
 
       units = root |> CodeSubjects.scan(scan_opts) |> Map.fetch!(:subjects)
-      judged = Enum.flat_map(units, &CodeSubjects.chunk(&1, projection, chunk_opts))
+
+      {judged, oversized} =
+        Enum.reduce(units, {[], []}, fn unit, {judged, oversized} ->
+          case CodeSubjects.fit(unit, projection, chunk_opts) do
+            {:ok, chunks} -> {Enum.reverse(chunks, judged), oversized}
+            {:error, {:context_too_large, _budget}} -> {judged, [unit | oversized]}
+          end
+        end)
+
+      judged = Enum.reverse(judged)
+      oversized = Enum.reverse(oversized)
 
       current = CodeSubjects.current_digests(judged, projection, term_opts(opts))
       by_term = Map.new(judged, &{CodeSubjects.subject_term(&1, term_opts(opts)), &1})
-      {Map.new(units, &{&1.id, &1}), judged, current, by_term}
+      {Map.new(units, &{&1.id, &1}), judged, oversized, current, by_term}
     end
 
     defp term_opts(opts), do: Keyword.take(opts, [:type])

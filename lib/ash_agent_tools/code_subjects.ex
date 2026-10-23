@@ -596,10 +596,35 @@ defmodule AshAgentTools.CodeSubjects do
 
   Each chunk is `<id>~chunk[i]` / `<name_path>~chunk[i]` with its own
   `line`, `span`, `location` and `chunk: %{index, of, parent_id}`. Raises
-  `ArgumentError` when the declared context alone leaves no room for text.
+  `ArgumentError` when the declared context alone leaves no room for text;
+  `fit/3` returns that case as an error instead.
   """
   @spec chunk(subject(), projection(), keyword()) :: [subject()]
   def chunk(subject, projection \\ [], opts \\ []) do
+    case fit(subject, projection, opts) do
+      {:ok, chunks} ->
+        chunks
+
+      {:error, {:context_too_large, budget}} ->
+        raise ArgumentError,
+              "the declared context of #{inspect(subject.id)} alone exceeds the" <>
+                " #{budget}-token budget; declare less context or raise :max_tokens"
+    end
+  end
+
+  @doc """
+  `chunk/3` without the raise: `{:ok, chunks}`, or
+  `{:error, {:context_too_large, budget}}` when the declared context alone
+  leaves no room for the unit's text within `budget` tokens
+  (`:max_tokens` less `:reserve_tokens`). Takes the options of `chunk/3`.
+
+  A scan over a whole checkout uses this, so one unit whose context cannot
+  fit is reported rather than stopping the scan
+  (`AshAgentTools.CodeSubjects.Standing`).
+  """
+  @spec fit(subject(), projection(), keyword()) ::
+          {:ok, [subject()]} | {:error, {:context_too_large, integer()}}
+  def fit(subject, projection \\ [], opts \\ []) do
     budget =
       Keyword.get(opts, :max_tokens, @default_max_tokens) -
         Keyword.get(opts, :reserve_tokens, @default_reserve_tokens)
@@ -607,7 +632,7 @@ defmodule AshAgentTools.CodeSubjects do
     count = Keyword.get(opts, :token_count, &estimate_tokens/1)
 
     if count.(Jason.encode!(state(subject, projection))) <= budget do
-      [subject]
+      {:ok, [subject]}
     else
       split(subject, projection, budget, count)
     end
@@ -630,11 +655,13 @@ defmodule AshAgentTools.CodeSubjects do
     measure = fn text -> count.(Jason.encode!(state(Map.put(probe, :text, text), projection))) end
 
     if measure.("") > budget do
-      raise ArgumentError,
-            "the declared context of #{inspect(subject.id)} alone exceeds the" <>
-              " #{budget}-token budget; declare less context or raise :max_tokens"
+      {:error, {:context_too_large, budget}}
+    else
+      {:ok, split_text(subject, budget, measure)}
     end
+  end
 
+  defp split_text(subject, budget, measure) do
     fits? = &(measure.(&1) <= budget)
 
     pieces =
