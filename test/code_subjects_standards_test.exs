@@ -293,6 +293,39 @@ defmodule AshAgentTools.CodeSubjectsStandardsTest do
       assert [{_unit, :out}] =
                Standing.statuses(root, CodeFact, predicate, Keyword.put(opts, :mode, :all))
     end
+
+    test "a unit whose context alone exceeds the budget is reported, and the scan goes on", %{
+      predicate: predicate
+    } do
+      root = tmp_dir!()
+      repository = "standing-#{System.unique_integer([:positive])}"
+      doc = Enum.map_join(1..60, "\n", &"  # line #{&1} of a long module body")
+
+      write!(root, "lib/big.ex", "defmodule Big do\n#{doc}\n  def one, do: 1\nend\n")
+      write!(root, "lib/small.ex", "defmodule Small do\n  def two, do: 2\nend\n")
+
+      opts = [
+        repository: repository,
+        kinds: [:function],
+        projection: [:module],
+        max_tokens: 400,
+        reserve_tokens: 40
+      ]
+
+      assert root
+             |> Standing.assess(CodeFact, predicate, opts)
+             |> Enum.map(fn {subject, reason} -> {subject.name_path, reason} end) == [
+               {"Small.two/0", :no_fact},
+               {"Big.one/0", :context_too_large}
+             ]
+
+      assert root
+             |> Standing.statuses(CodeFact, predicate, opts)
+             |> Enum.map(fn {unit, status} -> {unit.name_path, status} end) == [
+               {"Big.one/0", {:unknown, [:context_too_large]}},
+               {"Small.two/0", {:unknown, [:no_fact]}}
+             ]
+    end
   end
 
   defp admit!(subject, predicate, holds) do
