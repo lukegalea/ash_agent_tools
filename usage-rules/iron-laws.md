@@ -36,6 +36,7 @@ mix ash_agent.laws FILE [FILE...]             # judge files
 mix ash_agent.laws --code 'SNIPPET'           # judge a snippet
 git diff main | mix ash_agent.laws - --diff   # judge only added lines
 mix ash_agent.laws FILE --min-tier review     # definite|likely|review floor
+mix ash_agent.laws FILE --ignore-comments     # comments and @doc are not code
 ```
 
 Default floor is `likely`: review-tier hits stay out of `violations` but are
@@ -43,6 +44,12 @@ always visible in `counts`. Seven laws are behavioral (see
 `laws_without_detectors`) — apply them as a review checklist; the judge is
 grep-tier, not a parser, so read a hit's `hint` and judge context (a
 compile-time-constant `String.to_atom` is the documented exception).
+
+The judge reads text, so a comment or a `@doc` that mentions a pattern
+trips the law about it. `--ignore-comments` (`ignore_comments: true`) blanks
+`#` comments, `@doc`/`@moduledoc`/`@typedoc` values and HEEx/HTML comments
+first, line for line, so line numbers hold; in `--diff` mode only the
+one-line forms are applied. Off by default.
 
 ## Project laws
 

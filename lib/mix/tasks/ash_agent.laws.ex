@@ -37,6 +37,8 @@ defmodule Mix.Tasks.AshAgent.Laws do
     * `--code SNIPPET` - judge the given snippet instead of files
     * `--diff` - treat the input as a unified diff: only added (`+`) lines
       are judged, and whole-file detectors are skipped (they need full context)
+    * `--ignore-comments` - blank comments and `@doc`/`@moduledoc`/`@typedoc`
+      values before judging, so prose that mentions a pattern is not a hit
     * `--min-tier TIER` - report violations at this certainty or above:
       `definite`, `likely` (default), or `review` (= everything)
     * `--law ID` - restrict the judgement to specific law ids; repeatable,
@@ -71,6 +73,7 @@ defmodule Mix.Tasks.AshAgent.Laws do
         strict: [
           code: :string,
           diff: :boolean,
+          ignore_comments: :boolean,
           min_tier: :string,
           law: :keep,
           pretty: :boolean,
@@ -115,7 +118,8 @@ defmodule Mix.Tasks.AshAgent.Laws do
     judge_opts = [
       min_tier: parse_min_tier!(opts[:min_tier]),
       laws: law_ids(opts),
-      diff?: !!opts[:diff]
+      diff?: !!opts[:diff],
+      ignore_comments: !!opts[:ignore_comments]
     ]
 
     case sources do

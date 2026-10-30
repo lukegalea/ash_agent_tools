@@ -69,6 +69,13 @@ defmodule AshAgentTools.Laws do
   lines it objects to as line numbers or `%{line:, text:, hint:}` maps. It is
   tiered, selected, filtered and reported like any other detector.
 
+  ## Comments
+
+  The judge reads text, so a comment or a `@doc` that mentions a pattern
+  trips the law about it. `judge(source, ignore_comments: true)` blanks
+  comments and doc attributes first (`AshAgentTools.Laws.Comments`), line
+  for line, so line numbers hold. Off by default.
+
   ## Examples
 
       iex> report = AshAgentTools.Laws.judge("def boom(x), do: String.to_atom(x)")
@@ -675,6 +682,9 @@ defmodule AshAgentTools.Laws do
     * `:file` — the source's path, reported under `source` and on each
       violation (default `"inline"`); project laws scoped with `paths` or
       `exclude` are matched against it
+    * `:ignore_comments` — blank comments and `@doc`/`@moduledoc`/`@typedoc`
+      values before judging (`AshAgentTools.Laws.Comments.blank/2`), so
+      prose that mentions a pattern is not a hit. Default `false`.
     * `:min_tier` — `:definite`, `:likely` (default), or `:review`; lower tiers
       are filtered out of `violations` (and still counted in `counts`)
     * `:laws` — list of law ids (e.g. `["10", "04"]`) restricting the
@@ -694,6 +704,11 @@ defmodule AshAgentTools.Laws do
   """
   @spec judge(String.t(), keyword()) :: map()
   def judge(source, opts \\ []) when is_binary(source) do
+    source =
+      if Keyword.get(opts, :ignore_comments, false),
+        do: AshAgentTools.Laws.Comments.blank(source, diff?: Keyword.get(opts, :diff?, false)),
+        else: source
+
     min_tier = Keyword.get(opts, :min_tier, :likely)
     label = Keyword.get(opts, :file, "inline")
     path = source_path(label)
