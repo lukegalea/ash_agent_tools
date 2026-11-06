@@ -18,7 +18,7 @@ defmodule AshAgentTools.MixProject do
       app: :ash_agent_tools,
       version: @version,
       description: @description,
-      elixir: "~> 1.17",
+      elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),

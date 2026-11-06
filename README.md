@@ -443,7 +443,7 @@ Agents: read [AGENTS.md](AGENTS.md) before you change this repository. It links 
 
 ### Development environment
 
-`devenv.nix` holds the toolchain CI uses: OTP 27, Elixir 1.18, PostgreSQL 16
+`devenv.nix` holds the toolchain CI uses: OTP 27, Elixir 1.20, PostgreSQL 16
 and `xmllint`. `devenv shell` gives it to you locally. The same file builds
 the dev container image that `.devcontainer/devcontainer.json` uses:
 

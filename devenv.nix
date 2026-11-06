@@ -10,7 +10,7 @@
 #   devenv container copy devenv --registry docker-daemon:   # load it into Docker
 #
 # The toolchain matches CI (.github/actions/setup-elixir): OTP 27 and
-# Elixir 1.18, PostgreSQL 16 for the :db-tagged tests, xmllint for the DMN
+# Elixir 1.20, PostgreSQL 16 for the :db-tagged tests, xmllint for the DMN
 # fixtures. Change the two together.
 #
 # Bump `containers.devenv.version` whenever this file or devenv.lock changes,
@@ -55,7 +55,7 @@ in
   name = "ash-agent-tools";
 
   languages.erlang = { enable = true; package = beam.erlang; lsp.enable = false; };
-  languages.elixir = { enable = true; package = beam.elixir_1_18; lsp.enable = false; };
+  languages.elixir = { enable = true; package = beam.elixir_1_20; lsp.enable = false; };
 
   packages = with pkgs; [
     (binsOnly "git-bin" pkgs.git)
