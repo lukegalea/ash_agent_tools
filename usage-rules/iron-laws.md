@@ -143,7 +143,10 @@ end
   for `List.to_atom/1`, `:erlang.list_to_atom/1` and
   `:erlang.binary_to_atom/2`; the judge flags all four.
 - **#11 — Authorize in EVERY `handle_event`.** An event handler is a public
-  endpoint; route through Ash actions with policies or check `Ash.can?`.
+  endpoint; route through Ash actions with policies or check `Ash.can?`. The
+  judge reads a file as authorizing when it calls `Ash.can?` or is an
+  `AshA2ui.LiveRenderer` with an `actor_fn`: the renderer runs every A2UI event
+  as that actor through Ash policies.
 - **#12 — Never `raw/1` untrusted content.** `raw/1` marks content safe
   HTML: stored XSS. Sanitize first or drop it.
 

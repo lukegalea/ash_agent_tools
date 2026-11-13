@@ -339,6 +339,39 @@ defmodule AshAgentTools.LawsTest do
       assert Laws.judge(source).violations == []
     end
 
+    test "an AshA2ui.LiveRenderer with an actor_fn cleans #11" do
+      source = """
+      defmodule MyApp.OrdersLive do
+        use AshA2ui.LiveRenderer,
+          ui: MyApp.OrdersUI,
+          deep_link: true,
+          actor_fn: &__MODULE__.actor/1,
+          tenant_fn: &__MODULE__.tenant/1
+
+        def handle_event("a2ui:message", message, socket) do
+          super("a2ui:message", message, socket)
+        end
+      end
+      """
+
+      assert Laws.judge(source).violations == []
+    end
+
+    test "an AshA2ui.LiveRenderer with no actor_fn is still a likely #11" do
+      source = """
+      defmodule MyApp.OrdersLive do
+        use AshA2ui.LiveRenderer, ui: MyApp.OrdersUI
+
+        def handle_event("a2ui:message", message, socket) do
+          super("a2ui:message", message, socket)
+        end
+      end
+      """
+
+      assert [violation] = Enum.filter(Laws.judge(source).violations, &(&1.law == "11"))
+      assert violation.tier == :likely
+    end
+
     test "File.read! without @external_resource is a review #16" do
       source = "def terms, do: File.read!(\"priv/terms.md\")"
       report = Laws.judge(source, min_tier: :review)

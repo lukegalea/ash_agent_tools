@@ -446,11 +446,16 @@ defmodule AshAgentTools.Laws do
         "handle_event is a public endpoint. Every event needs authorization — via Ash " <>
           "actions with policies, or an explicit Ash.can? check.",
       detectors: [
+        # The evidence is file-wide, as it always was: an explicit Ash.can?, or a LiveView
+        # rendered by AshA2ui.LiveRenderer with an actor_fn. The renderer runs every A2UI event
+        # (its handle_message, and a host's own handle_event that delegates to it) through
+        # AshA2ui.ActionHandler as that actor with authorize?: true, so Ash policies decide.
+        # Without an actor_fn it runs with no actor, which is not evidence.
         %{
           kind: :file,
           tier: :likely,
           all: [~r/def\s+handle_event/],
-          none: [~r/Ash\.can\?\(/],
+          none: [~r/Ash\.can\?\(/, ~r/use\s+AshA2ui\.LiveRenderer\b(?s:.{0,800}?)\bactor_fn:/],
           hint:
             "handle_event defs with no Ash.can? in the file: every event handler is a public " <>
               "endpoint — authorize through Ash actions with policies, or check Ash.can? explicitly"
