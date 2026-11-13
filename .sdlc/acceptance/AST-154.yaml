@@ -1,0 +1,41 @@
+---
+# Acceptance criteria for AST-154: MixTaskTest "write_json emits compact JSON
+# by default" and "emit_json_error preserves the structured error contract"
+# failed under some random seeds with Jason.DecodeError (the captured output
+# was empty).
+#
+# Root cause: AshAgentTools.TaskOutput.ensure_compiled/0 silenced compile
+# chatter by reading the global Mix.shell/0, installing Mix.Shell.Quiet, and
+# putting back what it had read. Mix.shell/0 is VM-wide state (Mix.State), so
+# two overlapping callers (async tests that boot a Mix task or a daemon
+# runtime) could each read the other's Quiet as the shell to restore and leave
+# Quiet installed for the rest of the run. Every later Mix.shell().info/1 then
+# printed nothing, so write_json and emit_json_error captured "". Which seed
+# fails depends on whether two boots overlap, so it moves with timing as well
+# as order (CI: seeds 166850 and 510204 of the 20 in
+# https://github.com/lukegalea/ash_agent_tools/actions/runs/37719143799).
+#
+# Fix: the silence is scoped to the calling process (its group leader points
+# at a throwaway StringIO) and Mix.shell/0 is never touched.
+#
+# Plane ticket: AST-154.
+item: AST-154
+
+criteria:
+  - id: AST-154/AC-1
+    given: many processes booting the compile-only task path at the same time
+    when: they have all finished
+    then: the global Mix shell is the one it was before they started
+    verify: unit
+    risk: low
+    test: >-
+      test/task_output_test.exs::overlapping_callers_leave_the_global_mix_shell_exactly_as_they_found_it
+
+  - id: AST-154/AC-2
+    given: one process repeatedly booting the compile-only task path
+    when: another process captures what Mix.shell().info/1 prints
+    then: the other process always receives the text, never an empty string
+    verify: unit
+    risk: low
+    test: >-
+      test/task_output_test.exs::a_bystander_s_shell_output_is_never_swallowed_while_another_process_boots
