@@ -17,6 +17,7 @@ defmodule AshAgentTools.TaskOutputTest do
   # `Mix.shell().info/1` in the VM printed nothing, whichever test came next.
 
   describe "quiet compile boot" do
+    @tag ac: "AST-154/AC-1"
     test "overlapping callers leave the global Mix shell exactly as they found it" do
       shell = Mix.shell()
 
@@ -29,6 +30,7 @@ defmodule AshAgentTools.TaskOutputTest do
       end
     end
 
+    @tag ac: "AST-154/AC-2"
     test "a bystander's shell output is never swallowed while another process boots" do
       booter =
         Task.async(fn ->
