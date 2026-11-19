@@ -22,23 +22,49 @@ defmodule AshAgentTools.TaskOutput do
   project is compiled.
 
   Compilation output ("Compiling N files", "Generated ... app") goes
-  through `Mix.shell/0`, not Logger, so the shell is swapped to
-  `Mix.Shell.Quiet` for the duration (compiler diagnostics still reach
-  stderr; stdout stays pure JSON). `Mix.Task.run/2` caches, so this is a
-  no-op when the project is already fresh.
+  through `Mix.shell/0`, not Logger, so it is silenced with `quietly/1`
+  (compiler diagnostics still reach stderr; stdout stays pure JSON).
+  `Mix.Task.run/2` caches, so this is a no-op when the project is already
+  fresh.
   """
   def ensure_compiled do
-    previous_shell = Mix.shell()
-
-    Mix.shell(Mix.Shell.Quiet)
-
-    try do
-      Mix.Task.run("compile")
-    after
-      Mix.shell(previous_shell)
-    end
+    quietly(fn -> Mix.Task.run("compile") end)
 
     :ok
+  end
+
+  @doc """
+  Runs `fun`, discarding what it prints to standard output (`:stdio`, which
+  is where `Mix.Shell.IO` writes), and returns its result. Standard error is
+  a separate device and still reaches the terminal.
+
+  The silence is scoped to the calling process, by pointing its group leader
+  at a throwaway `StringIO`. It deliberately does **not** switch
+  `Mix.shell/0` to `Mix.Shell.Quiet`: that setting lives in global Mix state,
+  and "read the current shell, install Quiet, put back what I read" is not
+  safe when two callers overlap. The second reads the first's `Quiet` as the
+  shell to restore, so the VM is left on `Quiet` for good, and every later
+  `Mix.shell().info/1` — a Mix task's JSON on stdout, a `capture_io` in a
+  test — prints nothing (AST-154). A group leader is per process, so
+  overlapping callers, and processes that are not booting at all, never see
+  each other's setting.
+
+  Processes the function spawns inherit the throwaway group leader, so their
+  standard output is discarded as well, which is the intent here.
+  """
+  def quietly(fun) when is_function(fun, 0) do
+    caller = self()
+    previous_leader = Process.group_leader()
+    {:ok, sink} = StringIO.open("")
+
+    Process.group_leader(caller, sink)
+
+    try do
+      fun.()
+    after
+      Process.group_leader(caller, previous_leader)
+      StringIO.close(sink)
+    end
   end
 
   @doc """
