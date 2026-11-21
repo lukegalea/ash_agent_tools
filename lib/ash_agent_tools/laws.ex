@@ -64,7 +64,9 @@ defmodule AshAgentTools.Laws do
 
   When a rule needs more than a regex (a tag spanning lines, a check that
   reads the whole file, a different language), a project writes it as a
-  `:custom` detector: `check: &MyApp.Laws.click_targets/2`, a function of
+  `:custom` detector (core laws #08 and #09 use the same contract as `:ast`
+  detectors, parsed with `Code.string_to_quoted/2`):
+  `check: &MyApp.Laws.click_targets/2`, a function of
   `(source, meta)` with `meta` as `%{file:, lines:, diff?:}`, returning the
   lines it objects to as line numbers or `%{line:, text:, hint:}` maps. It is
   tiered, selected, filtered and reported like any other detector.
@@ -125,6 +127,11 @@ defmodule AshAgentTools.Laws do
   #                 without `unique`)
   #   * `:file`   — every `all` pattern present and no `none` pattern present
   #                 in the whole text (context laws)
+  #   * `:ast`    — a `check.(source, meta)` that parses the source with
+  #                 `Code.string_to_quoted/2` (`AshAgentTools.Laws.ObanArgs`);
+  #                 same contract as `:custom`, and a hit may carry its own
+  #                 `:tier` (the detector's `tier` is the default). It runs in
+  #                 diff mode, over each run of added lines.
   #   * `:custom` — a project's own `check.(source, meta)` function (project
   #                 laws only); returns the lines it objects to
   #
@@ -199,6 +206,7 @@ defmodule AshAgentTools.Laws do
       summary:
         "A form that \"does nothing\" is usually a failed changeset, not broken markup. " <>
           "Inspect the changeset/action errors before touching the UI.",
+      detectable_from: :session,
       detectors: []
     },
     %{
@@ -380,7 +388,14 @@ defmodule AshAgentTools.Laws do
       summary:
         "Oban serializes args through JSON: atom keys come back as strings and pattern " <>
           "matches in perform/1 silently miss. Build args with string keys.",
-      detectors: []
+      detectors: [
+        %{
+          kind: :ast,
+          tier: :likely,
+          check: &AshAgentTools.Laws.ObanArgs.keys/2,
+          hint: "atom keys in Oban job args — build them with string keys"
+        }
+      ]
     },
     %{
       id: "09",
@@ -390,7 +405,14 @@ defmodule AshAgentTools.Laws do
       summary:
         "A struct in job args freezes state at enqueue time and breaks across schema " <>
           "drift. Pass the id and re-read fresh in perform/1.",
-      detectors: []
+      detectors: [
+        %{
+          kind: :ast,
+          tier: :likely,
+          check: &AshAgentTools.Laws.ObanArgs.structs/2,
+          hint: "a struct in Oban job args — pass its id and re-read it in perform/1"
+        }
+      ]
     },
     # ── Security ──────────────────────────────────────────────────────────
     %{
@@ -617,6 +639,7 @@ defmodule AshAgentTools.Laws do
       summary:
         "No \"done\" without running it: compile, test, and show the output. This judge is " <>
           "that law mechanized for style; the compile+test half has no shortcut.",
+      detectable_from: :session,
       detectors: []
     },
     # ── Style ─────────────────────────────────────────────────────────────
@@ -633,7 +656,7 @@ defmodule AshAgentTools.Laws do
   ]
 
   @core_ids Enum.map(@laws, & &1.id)
-  @detector_kinds [:line, :mount, :window, :file, :custom]
+  @detector_kinds [:line, :mount, :window, :file, :custom, :ast]
 
   @doc """
   The law registry: the 26 iron laws with id, name, category, title,
@@ -767,8 +790,15 @@ defmodule AshAgentTools.Laws do
       counts: counts,
       clean?: violations == [],
       laws_without_detectors:
-        selected |> Enum.filter(&(&1.detectors == [])) |> Enum.map(&%{id: &1.id, name: &1.name})
+        selected |> Enum.filter(&(&1.detectors == [])) |> Enum.map(&without_detector/1)
     }
+  end
+
+  defp without_detector(law) do
+    case Map.get(law, :detectable_from) do
+      nil -> %{id: law.id, name: law.name}
+      from -> %{id: law.id, name: law.name, detectable_from: from}
+    end
   end
 
   # ── detector kinds ──────────────────────────────────────────────────────
@@ -897,11 +927,12 @@ defmodule AshAgentTools.Laws do
   defp custom_violations(source, laws, meta) do
     for law <- laws,
         det <- law.detectors,
-        det.kind == :custom,
+        det.kind in [:custom, :ast],
         hit <- custom_hits!(law, det, source, meta) do
       {no, text, hint} = custom_hit!(law, hit)
       line = text || Enum.at(meta.lines, no - 1) || ""
-      violation(law, %{det | hint: hint || det.hint}, no, line, meta.file)
+      tier = if is_map(hit), do: Map.get(hit, :tier, det.tier), else: det.tier
+      violation(law, %{det | hint: hint || det.hint, tier: tier}, no, line, meta.file)
     end
   end
 
@@ -1139,7 +1170,7 @@ defmodule AshAgentTools.Laws do
         :mount -> regex_keys(det, [:pattern]) ++ optional_regex(det, :guarded_by)
         :window -> regex_keys(det, [:pattern]) ++ regex_list(det, :none) ++ window(det)
         :file -> regex_list(det, :all, non_empty: true) ++ regex_list(det, :none)
-        :custom -> custom_check(det)
+        kind when kind in [:custom, :ast] -> custom_check(det)
       end
 
     if missing != [] do

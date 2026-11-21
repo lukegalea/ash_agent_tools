@@ -10,10 +10,10 @@ if Code.ensure_loaded?(AshAi) do
     The read-only ash_agent_tools tools as an ash_ai tool domain, for
     serving them from ash_ai's MCP router inside your app in dev.
 
-    Six tools, named and described exactly as on the `mix ash_agent.serve`
+    Seven tools, named and described exactly as on the `mix ash_agent.serve`
     daemon (the descriptions come from `AshAgentTools.Mcp.Cards`):
     `ash_describe`, `ash_validate`, `ash_can`, `ash_forbidden`,
-    `ash_context` and `ash_search`. Each is a generic action on
+    `ash_context`, `ash_search` and `ash_laws`. Each is a generic action on
     `AshAgentTools.AshAi.Tools` that calls the same dispatch the daemon uses
     and returns the daemon's JSON shape.
 
@@ -25,7 +25,7 @@ if Code.ensure_loaded?(AshAi) do
               otp_app: :my_app,
               protocol_version_statement: "2024-11-05",
               actions: [{AshAgentTools.AshAi.Tools, :*}],
-              tools: [:ash_describe, :ash_validate, :ash_can, :ash_forbidden, :ash_context, :ash_search]
+              tools: [:ash_describe, :ash_validate, :ash_can, :ash_forbidden, :ash_context, :ash_search, :ash_laws]
           end
         end
 
@@ -70,6 +70,10 @@ if Code.ensure_loaded?(AshAi) do
 
       tool :ash_search, AshAgentTools.AshAi.Tools, :ash_search do
         description Cards.description("ash_search")
+      end
+
+      tool :ash_laws, AshAgentTools.AshAi.Tools, :ash_laws do
+        description Cards.description("ash_laws")
       end
     end
 

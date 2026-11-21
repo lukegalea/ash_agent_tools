@@ -6,7 +6,7 @@ defmodule AshAgentTools.AshAiAdapterTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  # The ash_ai adapter: the six framework tools as an ash_ai tool domain.
+  # The ash_ai adapter: the framework tools as an ash_ai tool domain.
   # Every tool runs through ash_ai's own execution path and must answer
   # exactly what the daemon's dispatch answers, from the same cards.
 
@@ -14,7 +14,7 @@ defmodule AshAgentTools.AshAiAdapterTest do
   alias AshAgentTools.Mcp.Cards
   alias AshAgentTools.Mcp.Tools
 
-  @tool_names ~w(ash_describe ash_validate ash_can ash_forbidden ash_context ash_search)
+  @tool_names ~w(ash_describe ash_validate ash_can ash_forbidden ash_context ash_search ash_laws)
 
   defp exposed do
     AshAi.exposed_tools(
@@ -38,7 +38,7 @@ defmodule AshAgentTools.AshAiAdapterTest do
   end
 
   describe "exposed tools" do
-    test "lists the six, named as on the daemon" do
+    test "lists the seven, named as on the daemon" do
       assert exposed() |> Enum.map(&to_string(&1.name)) |> Enum.sort() == Enum.sort(@tool_names)
     end
 
@@ -102,7 +102,9 @@ defmodule AshAgentTools.AshAiAdapterTest do
       {"ash_forbidden", %{"resource" => "AshAgentTools.Test.Guarded"}},
       {"ash_context", %{"file" => "test/support/post.ex", "line" => 20}},
       {"ash_search", %{"term" => "title", "kinds" => ["attribute"]}},
-      {"ash_search", %{"term" => "e", "kinds" => ["probe_widgets"]}}
+      {"ash_search", %{"term" => "e", "kinds" => ["probe_widgets"]}},
+      {"ash_laws", %{"source" => "def boom(x), do: String.to_atom(x)"}},
+      {"ash_laws", %{"source" => "x", "laws" => ["10"], "min_tier" => "review"}}
     ]
 
     test "every tool answers what the daemon answers" do
@@ -206,7 +208,8 @@ defmodule AshAgentTools.AshAiAdapterTest do
                      :ash_can,
                      :ash_forbidden,
                      :ash_context,
-                     :ash_search
+                     :ash_search,
+                     :ash_laws
                    ]
                  )
 

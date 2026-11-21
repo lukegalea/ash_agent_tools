@@ -305,6 +305,40 @@ defmodule AshAgentTools.Mcp.Cards do
         ["key", "inputs"]
       ),
       card(
+        "ash_laws",
+        "Judge Elixir code against the 26 iron laws (Phoenix, Ecto, Oban, OTP, " <>
+          "security) — deterministic pattern checks, no model. Call it with a " <>
+          "diff BEFORE proposing a change, or with a snippet or project file. " <>
+          "Returns violations by tier (definite, likely, review), the laws it " <>
+          "checked, and the laws no detector can see. Read-only.",
+        %{
+          "source" => %{type: "string", description: "A code snippet or whole file's text."},
+          "file" => %{
+            type: "string",
+            description: "A project file, relative to the project root. Outside it is refused."
+          },
+          "diff" => %{
+            type: "string",
+            description: "A unified diff: only its added lines are judged."
+          },
+          "min_tier" => %{
+            type: "string",
+            description:
+              "Report this certainty or above: definite, likely (default) or review (everything)."
+          },
+          "laws" => %{
+            type: "array",
+            items: %{type: "string"},
+            description: "Judge only these law ids, e.g. [\"10\", \"08\"]."
+          },
+          "ignore_comments" => %{
+            type: "boolean",
+            description: "Blank comments and docs first, so prose naming a pattern is no hit."
+          }
+        },
+        []
+      ),
+      card(
         "ash_daemon_status",
         "The daemon's own status: boot/compile times, reload count, loaded " <>
           "domain and resource counts, describe-cache size, BEAM memory.",
