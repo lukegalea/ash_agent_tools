@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>
+SPDX-License-Identifier: MIT
+-->
+<!--
+The generic seed of the pre-flight tool-call gate (AshAgentTools.Gate).
+
+A host's own table (priv/decisions/agent_gate_rules.dmn in the host) is
+evaluated first; this one answers what the host's table defers. Each rule's
+description cites where the rule comes from. The command and path patterns are the table's input expressions (FEEL
+matches(), an XPath regular expression), so every rule is a row of true,
+false and "-" cells the verifier can reason about. The last rule matches everything
+and answers "defer": no deterministic rule spoke, so the call goes on to the
+harness's own permissions (or a later rung). That rule is what makes the table
+complete.
+
+Inputs, as AshAgentTools.Gate normalises them:
+  tool       "bash" | "edit" | "write" | "read" | another tool's lower-cased name
+  command    the shell command, for "bash"; "" otherwise
+  path       one path the call touches, relative to its repository root; "" for none
+  repo_kind  "first_party" | "community_fork" | "private"; null when unclassified
+-->
+<definitions xmlns="https://www.omg.org/spec/DMN/20230324/MODEL/"
+             id="agent_gate_rules"
+             name="Agent gate rules"
+             namespace="https://github.com/lukegalea/ash_agent_tools/gate"
+             expressionLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/"
+             typeLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/">
+  <inputData id="input_tool" name="tool">
+    <variable id="var_tool" name="tool" typeRef="string"/>
+  </inputData>
+  <inputData id="input_command" name="command">
+    <variable id="var_command" name="command" typeRef="string"/>
+  </inputData>
+  <inputData id="input_path" name="path">
+    <variable id="var_path" name="path" typeRef="string"/>
+  </inputData>
+  <inputData id="input_repo_kind" name="repo_kind">
+    <variable id="var_repo_kind" name="repo_kind" typeRef="string"/>
+  </inputData>
+  <decision id="decision_gate" name="Gate">
+    <variable id="var_gate" name="Gate"/>
+    <informationRequirement id="req_tool"><requiredInput href="#input_tool"/></informationRequirement>
+    <informationRequirement id="req_command"><requiredInput href="#input_command"/></informationRequirement>
+    <informationRequirement id="req_path"><requiredInput href="#input_path"/></informationRequirement>
+    <informationRequirement id="req_repo_kind"><requiredInput href="#input_repo_kind"/></informationRequirement>
+    <decisionTable id="table_gate" hitPolicy="FIRST">
+      <input id="clause_tool" label="Tool">
+        <inputExpression id="expr_tool" typeRef="string"><text>tool</text></inputExpression>
+      </input>
+      <input id="clause_repo_kind" label="Repository kind">
+        <inputExpression id="expr_repo_kind" typeRef="string"><text>repo_kind</text></inputExpression>
+      </input>
+      <input id="clause_pushes" label="Pushes">
+        <inputExpression id="expr_pushes" typeRef="boolean"><text>matches(command, "(^|[;&amp;|(]\s*)git(\s+-C\s+\S+)?\s+push(\s|$)")</text></inputExpression>
+      </input>
+      <input id="clause_force_push" label="Force-pushes">
+        <inputExpression id="expr_force_push" typeRef="boolean"><text>matches(command, "git(\s+-C\s+\S+)?\s+push(\s+[^;&amp;|]*)?\s+(-[A-Za-z]*f[A-Za-z]*(\s|$)|--force(-with-lease)?(\s|=|$)|\+\S)")</text></inputExpression>
+      </input>
+      <input id="clause_no_verify" label="Skips hooks">
+        <inputExpression id="expr_no_verify" typeRef="boolean"><text>matches(command, "git(\s+-C\s+\S+)?\s+(commit|push|merge|rebase)\s[^;&amp;|]*--no-verify")</text></inputExpression>
+      </input>
+      <input id="clause_kill_by_pattern" label="Kills by pattern">
+        <inputExpression id="expr_kill_by_pattern" typeRef="boolean"><text>matches(command, "(^\s*|[;&amp;|(]\s*|sudo\s+)(pkill|killall)(\s|$)")</text></inputExpression>
+      </input>
+      <output id="out_decision" name="decision" label="Decision" typeRef="string">
+        <outputValues id="out_decision_values"><text>"allow","ask","deny","defer"</text></outputValues>
+      </output>
+      <output id="out_rule_id" name="rule_id" label="Rule" typeRef="string"/>
+      <output id="out_reason" name="reason" label="Reason" typeRef="string"/>
+
+      <rule id="gate_fork_push">
+        <description>A community fork is never pushed: its changes are local commits, and what goes upstream goes as a person's pull request. Source: the push rule for community forks (local commits only, never pushed).</description>
+        <inputEntry id="gate_fork_push_tool"><text>"bash"</text></inputEntry>
+        <inputEntry id="gate_fork_push_repo_kind"><text>"community_fork"</text></inputEntry>
+        <inputEntry id="gate_fork_push_pushes"><text>true</text></inputEntry>
+        <inputEntry id="gate_fork_push_force_push"><text>-</text></inputEntry>
+        <inputEntry id="gate_fork_push_no_verify"><text>-</text></inputEntry>
+        <inputEntry id="gate_fork_push_kill_by_pattern"><text>-</text></inputEntry>
+        <outputEntry id="gate_fork_push_decision"><text>"deny"</text></outputEntry>
+        <outputEntry id="gate_fork_push_rule_id"><text>"gate_fork_push"</text></outputEntry>
+        <outputEntry id="gate_fork_push_reason"><text>"This repository tracks a community upstream: commit locally and leave pushing to a person."</text></outputEntry>
+      </rule>
+
+      <rule id="gate_force_push">
+        <description>A force push rewrites history other people build on. Source: ship-a-change, "never force-push main". A host table may allow a narrower case (a branch the agent owns) before this table is reached.</description>
+        <inputEntry id="gate_force_push_tool"><text>"bash"</text></inputEntry>
+        <inputEntry id="gate_force_push_repo_kind"><text>-</text></inputEntry>
+        <inputEntry id="gate_force_push_pushes"><text>-</text></inputEntry>
+        <inputEntry id="gate_force_push_force_push"><text>true</text></inputEntry>
+        <inputEntry id="gate_force_push_no_verify"><text>-</text></inputEntry>
+        <inputEntry id="gate_force_push_kill_by_pattern"><text>-</text></inputEntry>
+        <outputEntry id="gate_force_push_decision"><text>"deny"</text></outputEntry>
+        <outputEntry id="gate_force_push_rule_id"><text>"gate_force_push"</text></outputEntry>
+        <outputEntry id="gate_force_push_reason"><text>"Force pushes are refused: push without --force, or rebase and push again."</text></outputEntry>
+      </rule>
+
+      <rule id="gate_no_verify">
+        <description>Hooks are the repository's own checks; skipping them hides a failure instead of fixing it. Source: commit normally, never with --no-verify.</description>
+        <inputEntry id="gate_no_verify_tool"><text>"bash"</text></inputEntry>
+        <inputEntry id="gate_no_verify_repo_kind"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_verify_pushes"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_verify_force_push"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_verify_no_verify"><text>true</text></inputEntry>
+        <inputEntry id="gate_no_verify_kill_by_pattern"><text>-</text></inputEntry>
+        <outputEntry id="gate_no_verify_decision"><text>"deny"</text></outputEntry>
+        <outputEntry id="gate_no_verify_rule_id"><text>"gate_no_verify"</text></outputEntry>
+        <outputEntry id="gate_no_verify_reason"><text>"--no-verify skips the repository's hooks: fix what the hook reports instead."</text></outputEntry>
+      </rule>
+
+      <rule id="gate_kill_by_pattern">
+        <description>On a shared host a pattern matches other people's processes. Source: host notes, "Stopping processes" (never pkill -f or killall; kill the PID you recorded), and ship-a-change section 5.</description>
+        <inputEntry id="gate_kill_by_pattern_tool"><text>"bash"</text></inputEntry>
+        <inputEntry id="gate_kill_by_pattern_repo_kind"><text>-</text></inputEntry>
+        <inputEntry id="gate_kill_by_pattern_pushes"><text>-</text></inputEntry>
+        <inputEntry id="gate_kill_by_pattern_force_push"><text>-</text></inputEntry>
+        <inputEntry id="gate_kill_by_pattern_no_verify"><text>-</text></inputEntry>
+        <inputEntry id="gate_kill_by_pattern_kill_by_pattern"><text>true</text></inputEntry>
+        <outputEntry id="gate_kill_by_pattern_decision"><text>"deny"</text></outputEntry>
+        <outputEntry id="gate_kill_by_pattern_rule_id"><text>"gate_kill_by_pattern"</text></outputEntry>
+        <outputEntry id="gate_kill_by_pattern_reason"><text>"Killing by pattern reaches processes you did not start: kill the PID you recorded, or the one listening on your own port."</text></outputEntry>
+      </rule>
+
+      <rule id="gate_push_unclassified">
+        <description>A push from a repository the gate could not classify is a question for a person, not a pass: unknown never folds into allow.</description>
+        <inputEntry id="gate_push_unclassified_tool"><text>"bash"</text></inputEntry>
+        <inputEntry id="gate_push_unclassified_repo_kind"><text>null</text></inputEntry>
+        <inputEntry id="gate_push_unclassified_pushes"><text>true</text></inputEntry>
+        <inputEntry id="gate_push_unclassified_force_push"><text>-</text></inputEntry>
+        <inputEntry id="gate_push_unclassified_no_verify"><text>-</text></inputEntry>
+        <inputEntry id="gate_push_unclassified_kill_by_pattern"><text>-</text></inputEntry>
+        <outputEntry id="gate_push_unclassified_decision"><text>"ask"</text></outputEntry>
+        <outputEntry id="gate_push_unclassified_rule_id"><text>"gate_push_unclassified"</text></outputEntry>
+        <outputEntry id="gate_push_unclassified_reason"><text>"The gate could not tell what kind of repository this push leaves from: classify its remote in .agents/gate.json."</text></outputEntry>
+      </rule>
+
+      <rule id="gate_no_rule">
+        <description>No deterministic rule spoke: the call is deferred to the harness's own permissions or a later rung. This rule makes the table complete.</description>
+        <inputEntry id="gate_no_rule_tool"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_rule_repo_kind"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_rule_pushes"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_rule_force_push"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_rule_no_verify"><text>-</text></inputEntry>
+        <inputEntry id="gate_no_rule_kill_by_pattern"><text>-</text></inputEntry>
+        <outputEntry id="gate_no_rule_decision"><text>"defer"</text></outputEntry>
+        <outputEntry id="gate_no_rule_rule_id"><text>"gate_no_rule"</text></outputEntry>
+        <outputEntry id="gate_no_rule_reason"><text>"No gate rule applies."</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

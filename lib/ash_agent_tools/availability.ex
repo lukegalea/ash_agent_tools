@@ -53,7 +53,7 @@ defmodule AshAgentTools.Availability do
       integration: :ash_decisions,
       module: AshDecisions,
       dep: ~s({:ash_decisions, github: "lukegalea/ash_decisions"}),
-      tools: [:decisions, :decision_evaluate],
+      tools: [:decisions, :decision_evaluate, :gate],
       concept: "DMN decisions: catalogues, stored verification, dry evaluation"
     },
     %{

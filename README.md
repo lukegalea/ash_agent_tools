@@ -366,6 +366,39 @@ out of discovery.
   `file_system` the daemon starts without hot reload, and `ash_reload` is
   the manual refresh.
 
+## Pre-flight gate
+
+`AshAgentTools.Gate` checks an agent's tool call before it runs, against
+the repository's own rules written as DMN decision tables, and answers
+`allow`, `ask`, `deny` or `defer` with the rule and its reason. The
+generic seed (`priv/gate/agent_gate_rules.dmn`) refuses force pushes,
+pushes from a community fork, `--no-verify` and killing processes by
+pattern, and asks before a push from a repository it cannot classify. A
+host adds its own rules in `priv/decisions/agent_gate_rules.dmn`, which is
+asked first. Evaluation is `ash_decisions`' dry evaluation (no
+`Evaluation` row); the tables pass its verifier (`mix ash_agent.gate
+--verify`).
+
+The daemon serves it as `POST /gate` and the MCP tool `ash_gate`, and logs
+every decision to `.agents/logs/gate.jsonl`. Two thin adapters post to it:
+
+- Claude Code: `priv/hooks/claude_pretooluse.sh`, a `PreToolUse` hook.
+  ```json
+  {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "timeout": 5,
+    "command": "ASH_AGENT_GATE_URL=http://127.0.0.1:4100/gate deps/ash_agent_tools/priv/hooks/claude_pretooluse.sh"}]}]}}
+  ```
+- opencode: `priv/hooks/opencode-gate.ts`, a `tool.execute.before` plugin
+  (copy it into `.opencode/plugins/`).
+
+When the daemon does not answer, both ask a person instead of allowing
+(read-only tools pass). Debug a rule with `mix ash_agent.gate --explain
+'{"tool":"bash","command":"git push -f origin main","cwd":"."}'`.
+
+**The gate is a guardrail, not a security boundary.** Its patterns see
+only what they anticipate, and an agent can phrase a command none of them
+match. Sandboxes and the harness's own permissions remain the security
+controls.
+
 ## Compile-only boot
 
 The introspection tasks (`describe`, `validate`, `search`, `context`,

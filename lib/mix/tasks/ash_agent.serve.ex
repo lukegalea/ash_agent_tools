@@ -62,6 +62,13 @@ defmodule Mix.Tasks.AshAgent.Serve do
     # The kaizen dev sink: tool gaps become the daemon's fire-rate metric.
     AshAgentTools.Kaizen.attach()
 
+    # The gate's tables compile once here, not on the first hook call.
+    if AshAgentTools.Availability.active?(:ash_decisions) do
+      for {table, reason} <- AshAgentTools.Gate.warm() do
+        Mix.shell().error("gate table #{table} does not compile: #{inspect(reason)}")
+      end
+    end
+
     overrides =
       opts
       |> Keyword.take([:port])

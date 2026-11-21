@@ -258,11 +258,13 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
   `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`, `ash_rules`,
   `ash_transitions`, `ash_processes`, `ash_process_graph`,
   `ash_process_instance`, `ash_decisions`, `ash_decision_evaluate`,
-  `ash_laws`, `ash_daemon_status`, `ash_reload`. The cards (name, description, input
-  schema) live in `AshAgentTools.Mcp.Cards`. All read-only — same
-  contract as the facade. Before proposing a diff, call `ash_laws` with
-  `diff` (or `source`, or a project-relative `file`; `min_tier`, `laws` as
-  on `mix ash_agent.laws`): it is the deterministic judge, no model. Module names in arguments are matched against
+  `ash_laws`, `ash_gate`, `ash_daemon_status`, `ash_reload`. The cards (name,
+  description, input schema) live in `AshAgentTools.Mcp.Cards`. All
+  read-only — same contract as the facade — except that `ash_gate` (and
+  `POST /gate`) append the gate's audit line. Before proposing a diff, call
+  `ash_laws` with `diff` (or `source`, or a project-relative `file`;
+  `min_tier`, `laws` as on `mix ash_agent.laws`): it is the deterministic
+  judge, no model. Module names in arguments are matched against
   the loaded modules, never converted to atoms. There is no
   edit tool on the daemon: write paths stay in `mix ash_agent.edit` and
   your edit tools.
@@ -287,6 +289,56 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
   once instead of per call. Single-question sessions are fine with the
   tasks. Prefer in-VM calls (above) when you are already attached to a
   running node.
+
+## The pre-flight gate (`AshAgentTools.Gate`)
+
+A deterministic check a harness runs before each tool call: the
+repository's own rules as DMN decision tables (hit policy `FIRST`), asked
+with the tool, the command, each path and the kind of repository, and
+answered `allow`, `ask`, `deny` or `defer` with a `rule_id` and a `reason`.
+It needs the optional `ash_decisions` dep; no model is called.
+
+- **Tables, in order:** the host's `priv/decisions/agent_gate_rules.dmn`
+  (when present), then the generic seed shipped in `priv/gate/`. The first
+  answer that is not `defer` wins, so a host table can allow a narrow case
+  ahead of the seed's broader refusal. Several paths: the strictest answer
+  wins. Every table ends with a match-all rule that defers, which is what
+  makes it complete.
+- **Write rules as input columns, not cells.** Each command or path
+  pattern is an input expression of type boolean (`matches(command, "...")`,
+  an XPath regular expression), and rules are rows of `true`, `false` and
+  `-`. The `ash_decisions` verifier can then prove the table (`mix
+  ash_agent.gate --verify`: no error or warning findings, no obligations;
+  overlaps are legal under `FIRST`). A `matches(?, ...)` cell is neither
+  evaluable nor provable.
+- **Patterns:** absent `command` and `path` are `""`, so every pattern
+  sees a string. Anchor a narrow allow on the whole command (`^...$`), so a
+  compound command falls through to the refusal. `.` does not cross a
+  newline; avoid `.` inside a character class.
+- **Repository kind** comes from git remotes and `.agents/gate.json`
+  (`first_party`, `private`, `community_fork` lists of regular
+  expressions over the `origin` URL; a remote named `upstream` makes a
+  community fork). Unclassified is `null`, and the rules decide what it
+  may do (the seed asks before a push).
+- **Errors are asks.** A table that does not compile, or a request the
+  gate cannot read, is `ask` with `rule_id: "gate_error"`. The adapters
+  answer `ask` when the daemon is unreachable, except for read-only tools.
+  Never turn either into an allow.
+- **`allow` is not a grant.** The adapters leave `allow` and `defer` to the
+  harness's own permissions; only `deny` and `ask` change anything.
+- **Serving:** `mix ash_agent.serve` answers `POST /gate` (add
+  `?format=claude_code` for Claude Code's hook output) and the MCP tool
+  `ash_gate`; both append one line to `.agents/logs/gate.jsonl` with the
+  rule, the table's `definition_hash` and the engine's `matched_rule_ids`.
+  `mix ash_agent.gate --explain JSON` answers without writing.
+- **Adapters:** `priv/hooks/claude_pretooluse.sh` (a `PreToolUse` command
+  hook; POSIX `sh` and `curl`, `jq` only to let read-only tools through when
+  the daemon is down) and `priv/hooks/opencode-gate.ts` (a
+  `tool.execute.before` plugin, which blocks on `deny` and on `ask`).
+  `ASH_AGENT_GATE_URL` points both at the daemon.
+- **A guardrail, not a security boundary.** A pattern only sees what it
+  anticipates. Sandboxes and harness permissions stay the security
+  controls.
 
 ## Optional concept tooling (the activation contract)
 

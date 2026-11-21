@@ -34,6 +34,13 @@ if Code.ensure_loaded?(Plug.Conn) do
       * always replies `content-type: application/json`; the
         `Accept: application/json, text/event-stream` dance is tolerated
 
+    `POST /gate` is the pre-flight gate's hook endpoint, outside JSON-RPC:
+    the body is a harness payload (see `AshAgentTools.Gate.Request`), the
+    reply the decision (`AshAgentTools.Gate.check/2`, which writes the
+    audit line). With `?format=claude_code` the reply is Claude Code's
+    `PreToolUse` hook output itself (`AshAgentTools.Gate.claude_code_output/1`),
+    so the hook script prints it unchanged.
+
     The body is read directly (`Plug.Conn.read_body/1`) — no `Plug.Parsers`
     — so malformed JSON becomes a JSON-RPC `-32700` response rather than a
     parser exception. Stateless by design: every request is answered from
@@ -155,7 +162,10 @@ if Code.ensure_loaded?(Plug.Conn) do
     defp handle(conn) do
       case read_body(conn) do
         {:ok, body, conn} ->
-          dispatch(conn, body)
+          case conn.path_info do
+            ["gate"] -> gate(conn, body)
+            _ -> dispatch(conn, body)
+          end
 
         {:error, reason} ->
           json_rpc_error(
@@ -185,6 +195,24 @@ if Code.ensure_loaded?(Plug.Conn) do
 
         {:error, %Jason.DecodeError{} = error} ->
           json_rpc_error(conn, 400, nil, -32_700, Exception.message(error))
+      end
+    end
+
+    defp gate(conn, body) do
+      case Jason.decode(body) do
+        {:ok, %{} = payload} ->
+          result = AshAgentTools.Gate.check(payload)
+
+          reply =
+            case fetch_query_params(conn).query_params do
+              %{"format" => "claude_code"} -> AshAgentTools.Gate.claude_code_output(result)
+              _ -> result
+            end
+
+          send_json(conn, 200, reply)
+
+        _ ->
+          send_json(conn, 400, %{error: "the gate takes a JSON object"})
       end
     end
 

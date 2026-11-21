@@ -27,12 +27,14 @@ defmodule AshAgentTools.Mcp.Tools do
   | `ash_decisions` | `decisions/2` — optional `ash_decisions`: the catalogue |
   | `ash_decision_evaluate` | `decision_evaluate/3` — dry evaluation, `record: false` |
   | `ash_laws` | `Laws.judge/2` — the deterministic iron-laws judge, no model |
+  | `ash_gate` | `AshAgentTools.Gate.check/2` — the pre-flight gate; appends its audit line |
   | `ash_daemon_status` | `AshAgentTools.Daemon.Runtime.status/1` |
   | `ash_reload` | `AshAgentTools.Daemon.Runtime.request_reload/2` |
 
   `ash_diff` is deliberately deferred: it reads semantic-manifest files the
   RFC exporter does not emit yet (`mix ash.manifest.dump --semantic` is
-  future work). All tools are read-only: nothing executes, nothing writes.
+  future work). All tools are read-only: nothing executes, and nothing
+  writes except `ash_gate`'s audit line.
 
   Failures follow the mix tasks' structured-error pattern: a bad resource,
   action, or search term becomes
@@ -130,6 +132,13 @@ defmodule AshAgentTools.Mcp.Tools do
   defp more_tools("ash_decision_evaluate", args), do: decision_evaluate(args)
 
   defp more_tools("ash_laws", args), do: laws(args)
+
+  defp more_tools("ash_gate", %{"request" => %{} = request}),
+    do: {:ok, AshAgentTools.Gate.check(request)}
+
+  defp more_tools("ash_gate", _args),
+    do: {:error, %{error: "ash_gate requires a \"request\" object", did_you_mean: []}}
+
   defp more_tools("ash_daemon_status", args), do: daemon_tool("ash_daemon_status", args)
   defp more_tools("ash_reload", args), do: daemon_tool("ash_reload", args)
 
