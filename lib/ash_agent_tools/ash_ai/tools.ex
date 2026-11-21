@@ -104,6 +104,25 @@ if Code.ensure_loaded?(AshAi) do
 
         run {Run, tool: "ash_search"}
       end
+
+      action :ash_laws, :map do
+        description Cards.description("ash_laws")
+
+        argument :source, :string, description: Cards.argument_description("ash_laws", "source")
+        argument :file, :string, description: Cards.argument_description("ash_laws", "file")
+        argument :diff, :string, description: Cards.argument_description("ash_laws", "diff")
+
+        argument :min_tier, :string,
+          description: Cards.argument_description("ash_laws", "min_tier")
+
+        argument :laws, {:array, :string},
+          description: Cards.argument_description("ash_laws", "laws")
+
+        argument :ignore_comments, :boolean,
+          description: Cards.argument_description("ash_laws", "ignore_comments")
+
+        run {Run, tool: "ash_laws"}
+      end
     end
   end
 end

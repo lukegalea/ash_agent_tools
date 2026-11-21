@@ -91,8 +91,9 @@ The tools are one read-only facade (`AshAgentTools`) with three ways in:
   on loopback. It compiles your project and never starts it, so it works
   whether or not your app or Phoenix is running.
 - **Inside ash_ai's MCP router.** With the optional `ash_ai` dependency,
-  `AshAgentTools.AshAi` serves six of the daemon's tools (`ash_describe`,
-  `ash_validate`, `ash_can`, `ash_forbidden`, `ash_context`, `ash_search`)
+  `AshAgentTools.AshAi` serves seven of the daemon's tools (`ash_describe`,
+  `ash_validate`, `ash_can`, `ash_forbidden`, `ash_context`, `ash_search`,
+  `ash_laws`)
   from your running app in dev. See [Using it with ash_ai](#using-it-with-ash_ai).
 
 All surfaces return the same JSON-encodable maps. The tool cards (name,
@@ -351,6 +352,8 @@ out of discovery.
   `ash_validate`, `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`,
   `ash_rules`, `ash_transitions`, `ash_processes`, `ash_process_graph`,
   `ash_process_instance`, `ash_decisions`, `ash_decision_evaluate`,
+  `ash_laws` (the deterministic iron-laws judge, no model: a snippet, a
+  project file or a diff in, the `mix ash_agent.laws` report out),
   `ash_daemon_status`, and `ash_reload`.
   Same compile-only boot contract as
   the tasks — the mix boot is paid once at daemon start, every tool call is

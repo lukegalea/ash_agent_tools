@@ -26,6 +26,7 @@ defmodule AshAgentTools.Mcp.Tools do
   | `ash_process_instance` | `process_instance/1` — in-flight state, read-only |
   | `ash_decisions` | `decisions/2` — optional `ash_decisions`: the catalogue |
   | `ash_decision_evaluate` | `decision_evaluate/3` — dry evaluation, `record: false` |
+  | `ash_laws` | `Laws.judge/2` — the deterministic iron-laws judge, no model |
   | `ash_daemon_status` | `AshAgentTools.Daemon.Runtime.status/1` |
   | `ash_reload` | `AshAgentTools.Daemon.Runtime.request_reload/2` |
 
@@ -128,6 +129,7 @@ defmodule AshAgentTools.Mcp.Tools do
   defp more_tools("ash_decisions", args), do: decisions(args)
   defp more_tools("ash_decision_evaluate", args), do: decision_evaluate(args)
 
+  defp more_tools("ash_laws", args), do: laws(args)
   defp more_tools("ash_daemon_status", args), do: daemon_tool("ash_daemon_status", args)
   defp more_tools("ash_reload", args), do: daemon_tool("ash_reload", args)
 
@@ -430,6 +432,112 @@ defmodule AshAgentTools.Mcp.Tools do
       end)
     end
   end
+
+  # The deterministic judge: pure text in, the report out. A `file` is read
+  # from the project root (the VM's working directory) and nothing outside it.
+  defp laws(%{} = args) do
+    with {:ok, {text, label, diff?}} <- laws_input(args),
+         {:ok, tier} <- laws_tier(args["min_tier"]),
+         {:ok, ids} <- laws_ids(args["laws"]) do
+      opts =
+        [
+          min_tier: tier,
+          laws: ids,
+          diff?: diff?,
+          ignore_comments: args["ignore_comments"] == true
+        ]
+        |> Keyword.merge(if label, do: [file: label], else: [])
+
+      safely(nil, nil, fn -> AshAgentTools.Laws.judge(text, opts) end)
+    end
+  end
+
+  defp laws_input(args) do
+    case Enum.filter(~w(source file diff), &Map.has_key?(args, &1)) do
+      ["source"] ->
+        with {:ok, text} <- required_string(args["source"], "source"),
+             do: {:ok, {text, nil, false}}
+
+      ["diff"] ->
+        with {:ok, text} <- required_string(args["diff"], "diff"), do: {:ok, {text, nil, true}}
+
+      ["file"] ->
+        laws_file(args["file"])
+
+      given ->
+        {:error,
+         %{
+           error: "give exactly one of source, file or diff, got: #{inspect(given)}",
+           did_you_mean: ~w(source file diff)
+         }}
+    end
+  end
+
+  defp laws_file(path) when is_binary(path) and path != "" do
+    cwd = File.cwd!()
+
+    with {:ok, root} <- real_path(cwd, 0),
+         {:ok, real} <- real_path(Path.expand(path, cwd), 0),
+         true <- real == root or String.starts_with?(real, root <> "/"),
+         {:ok, text} <- File.read(real) do
+      {:ok, {text, Path.relative_to(real, root), false}}
+    else
+      {:error, reason} when is_atom(reason) ->
+        {:error, %{error: "cannot read #{path}: #{:file.format_error(reason)}", did_you_mean: []}}
+
+      _ ->
+        {:error, %{error: "file must be inside the project root: #{path}", did_you_mean: []}}
+    end
+  end
+
+  defp laws_file(other),
+    do:
+      {:error,
+       %{error: "\"file\" must be a non-empty string, got: #{inspect(other)}", did_you_mean: []}}
+
+  # `path` with every symlink in it resolved, so a link cannot lead out of
+  # the root. A path that loops is refused.
+  defp real_path(_path, depth) when depth > 20, do: {:error, :eloop}
+
+  defp real_path(path, depth) do
+    parts = path |> Path.split() |> tl()
+
+    Enum.reduce_while(parts, {:ok, "/"}, fn part, {:ok, acc} ->
+      next = Path.join(acc, part)
+
+      case File.read_link(next) do
+        {:ok, target} ->
+          {:halt, real_path(Path.expand(target, acc), depth + 1)}
+
+        {:error, _} ->
+          {:cont, {:ok, next}}
+      end
+    end)
+  end
+
+  defp laws_tier(nil), do: {:ok, :likely}
+
+  defp laws_tier(tier) do
+    case Enum.find(AshAgentTools.Laws.tiers(), &(Atom.to_string(&1) == tier)) do
+      nil ->
+        {:error,
+         %{error: "unknown min_tier #{inspect(tier)}", did_you_mean: ~w(definite likely review)}}
+
+      found ->
+        {:ok, found}
+    end
+  end
+
+  defp laws_ids(nil), do: {:ok, nil}
+
+  defp laws_ids(ids) when is_list(ids) do
+    if Enum.all?(ids, &is_binary/1),
+      do: {:ok, ids},
+      else: {:error, %{error: "laws must be an array of law id strings", did_you_mean: []}}
+  end
+
+  defp laws_ids(_),
+    do: {:error, %{error: "laws must be an array of law id strings", did_you_mean: []}}
 
   # -- argument plumbing -----------------------------------------------------
 

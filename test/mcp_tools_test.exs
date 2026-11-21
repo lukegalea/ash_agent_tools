@@ -393,4 +393,69 @@ defmodule AshAgentTools.Mcp.ToolsTest do
       assert "ash_describe" in error.did_you_mean
     end
   end
+
+  describe "ash_laws" do
+    alias AshAgentTools.Laws
+
+    test "answers exactly what the judge answers for a snippet" do
+      source = "def boom(x), do: String.to_atom(x)"
+
+      assert {:ok, report} = Tools.call("ash_laws", %{"source" => source})
+      assert report == Laws.judge(source)
+      assert [%{law: "10", tier: :definite}] = report.violations
+    end
+
+    test "min_tier, laws and diff mirror mix ash_agent.laws" do
+      diff = "+++ b/lib/x.ex\n+MyApp.EmailWorker.new(%{user_id: 1})\n"
+
+      assert {:ok, report} = Tools.call("ash_laws", %{"diff" => diff, "laws" => ["08"]})
+      assert report == Laws.judge(diff, diff?: true, laws: ["08"])
+      assert [%{law: "08", tier: :likely}] = report.violations
+
+      assert {:ok, %{laws_checked: 1}} =
+               Tools.call("ash_laws", %{"source" => "x", "laws" => ["10"], "min_tier" => "review"})
+    end
+
+    test "reads a project file, relative to the project root" do
+      assert {:ok, report} = Tools.call("ash_laws", %{"file" => "mix.exs"})
+      assert report.source == "mix.exs"
+    end
+
+    test "refuses a file outside the root and reads nothing" do
+      for path <- ["../../etc/passwd", "/etc/passwd", "lib/../../outside.ex"] do
+        assert {:error, %{error: error}} = Tools.call("ash_laws", %{"file" => path})
+        assert error =~ "inside the project root"
+      end
+    end
+
+    test "refuses a symlink that leads out of the root" do
+      dir = Path.join(File.cwd!(), "tmp_laws_link_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      link = Path.join(dir, "escape.ex")
+      File.ln_s!("/etc/hostname", link)
+
+      try do
+        assert {:error, %{error: error}} =
+                 Tools.call("ash_laws", %{"file" => Path.relative_to_cwd(link)})
+
+        assert error =~ "inside the project root"
+      after
+        File.rm_rf!(dir)
+      end
+    end
+
+    test "structured errors for bad input" do
+      assert {:error, %{error: e}} = Tools.call("ash_laws", %{})
+      assert e =~ "exactly one"
+      assert {:error, %{error: e}} = Tools.call("ash_laws", %{"source" => "x", "diff" => "y"})
+      assert e =~ "exactly one"
+
+      assert {:error, %{did_you_mean: tiers}} =
+               Tools.call("ash_laws", %{"source" => "x", "min_tier" => "bad"})
+
+      assert "likely" in tiers
+      assert {:error, %{error: e}} = Tools.call("ash_laws", %{"source" => "x", "laws" => ["99"]})
+      assert e =~ "99"
+    end
+  end
 end

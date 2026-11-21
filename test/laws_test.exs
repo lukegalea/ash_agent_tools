@@ -55,6 +55,7 @@ defmodule AshAgentTools.LawsTest do
           :mount -> assert is_struct(det.pattern, Regex)
           :window -> assert is_struct(det.pattern, Regex) and is_integer(det.window)
           :file -> assert is_list(det.all) and is_list(det.none)
+          :ast -> assert is_function(det.check, 2)
         end
       end
     end

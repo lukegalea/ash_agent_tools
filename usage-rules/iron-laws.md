@@ -40,9 +40,12 @@ mix ash_agent.laws FILE --ignore-comments     # comments and @doc are not code
 ```
 
 Default floor is `likely`: review-tier hits stay out of `violations` but are
-always visible in `counts`. Seven laws are behavioral (see
-`laws_without_detectors`) — apply them as a review checklist; the judge is
-grep-tier, not a parser, so read a hit's `hint` and judge context (a
+always visible in `counts`. Five laws are behavioral (#06, #18, #20, #22,
+#26; see `laws_without_detectors`, where #18 and #22 say
+`detectable_from: "session"`) — apply them as a review checklist. The judge is
+grep-tier, with one parse-based exception: #08 and #09 parse the source and
+look at the args of an Oban job being built (`Oban.Job.new`, `Some.Worker.new`,
+anything given to `Oban.insert*`). So read a hit's `hint` and judge context (a
 compile-time-constant `String.to_atom` is the documented exception).
 
 The judge reads text, so a comment or a `@doc` that mentions a pattern
@@ -133,8 +136,12 @@ end
   declare `unique:` and make `perform/1` replay-safe.
 - **#08 — Args are string-keyed.** Oban serializes through JSON; atom keys
   come back as strings and `perform/1` pattern matches silently miss.
+  Detected (`:likely` on a recognised job constructor, `:review` on a
+  `...Job.new`) when the args map literal has an atom key at any depth.
 - **#09 — Store IDs, not structs.** Structs freeze state at enqueue time;
-  pass the id and re-read fresh.
+  pass the id and re-read fresh. Detected the same way for a struct literal,
+  a `__struct__` key, or a variable bound to a struct literal in the same
+  function; `user.id` and `Map.from_struct/1` are not hits.
 
 ### Security
 
@@ -176,6 +183,13 @@ end
   exceptions; the judge's existence is this law mechanized for style.
 - **#26 — Comments aren't commit messages.** Only durable facts in code;
   narrative belongs to the commit.
+
+## The judge over MCP
+
+`ash_laws` serves the same judge from the daemon and the ash_ai router:
+`{source | file | diff, min_tier?, laws?, ignore_comments?}` in, the report
+above out. `file` is read relative to the project root and nothing outside
+it. Call it with `diff` before proposing a change.
 
 ## Why this section exists
 

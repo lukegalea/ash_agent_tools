@@ -258,9 +258,11 @@ stateless — no sessions, no SSE) plus a file watcher on `lib/` and
   `ash_can`, `ash_search`, `ash_context`, `ash_forbidden`, `ash_rules`,
   `ash_transitions`, `ash_processes`, `ash_process_graph`,
   `ash_process_instance`, `ash_decisions`, `ash_decision_evaluate`,
-  `ash_daemon_status`, `ash_reload`. The cards (name, description, input
+  `ash_laws`, `ash_daemon_status`, `ash_reload`. The cards (name, description, input
   schema) live in `AshAgentTools.Mcp.Cards`. All read-only — same
-  contract as the facade. Module names in arguments are matched against
+  contract as the facade. Before proposing a diff, call `ash_laws` with
+  `diff` (or `source`, or a project-relative `file`; `min_tier`, `laws` as
+  on `mix ash_agent.laws`): it is the deterministic judge, no model. Module names in arguments are matched against
   the loaded modules, never converted to atoms. There is no
   edit tool on the daemon: write paths stay in `mix ash_agent.edit` and
   your edit tools.
