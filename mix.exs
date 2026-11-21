@@ -151,7 +151,8 @@ defmodule AshAgentTools.MixProject do
         "GitHub" => "https://github.com/lukegalea/ash_agent_tools",
         "Usage rules" => "https://github.com/lukegalea/ash_agent_tools/blob/HEAD/usage-rules.md"
       },
-      files: ~w(lib mix.exs README.md LICENSE LICENSES usage-rules.md usage-rules .formatter.exs)
+      files:
+        ~w(lib priv/gate priv/hooks mix.exs README.md LICENSE LICENSES usage-rules.md usage-rules .formatter.exs)
     ]
   end
 

@@ -107,6 +107,7 @@ defmodule AshAgentTools.Mcp.PlugTest do
                "ash_decisions",
                "ash_decision_evaluate",
                "ash_laws",
+               "ash_gate",
                "ash_daemon_status",
                "ash_reload"
              ]

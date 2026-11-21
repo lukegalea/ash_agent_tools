@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>
+SPDX-License-Identifier: MIT
+-->
+<!-- A host table for the gate tests: one narrow allow ahead of the seed's
+     force-push refusal, and one path rule. -->
+<definitions xmlns="https://www.omg.org/spec/DMN/20230324/MODEL/"
+             id="gate_host"
+             name="Gate host fixture"
+             namespace="https://github.com/lukegalea/ash_agent_tools/gate/test"
+             expressionLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/"
+             typeLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/">
+  <inputData id="input_tool" name="tool"><variable id="var_tool" name="tool" typeRef="string"/></inputData>
+  <inputData id="input_command" name="command"><variable id="var_command" name="command" typeRef="string"/></inputData>
+  <inputData id="input_path" name="path"><variable id="var_path" name="path" typeRef="string"/></inputData>
+  <inputData id="input_repo_kind" name="repo_kind"><variable id="var_repo_kind" name="repo_kind" typeRef="string"/></inputData>
+  <decision id="decision_gate" name="Gate">
+    <variable id="var_gate" name="Gate"/>
+    <informationRequirement id="req_tool"><requiredInput href="#input_tool"/></informationRequirement>
+    <informationRequirement id="req_command"><requiredInput href="#input_command"/></informationRequirement>
+    <informationRequirement id="req_path"><requiredInput href="#input_path"/></informationRequirement>
+    <informationRequirement id="req_repo_kind"><requiredInput href="#input_repo_kind"/></informationRequirement>
+    <decisionTable id="table_gate" hitPolicy="FIRST">
+      <input id="clause_tool" label="Tool">
+        <inputExpression id="expr_tool" typeRef="string"><text>tool</text></inputExpression>
+      </input>
+      <input id="clause_repo_kind" label="Repository kind">
+        <inputExpression id="expr_repo_kind" typeRef="string"><text>repo_kind</text></inputExpression>
+      </input>
+      <input id="clause_own_branch_force_push" label="Force-pushes its own branch">
+        <inputExpression id="expr_own_branch_force_push" typeRef="boolean"><text>matches(command, "^\s*git push (-f|--force) origin HEAD:refs/heads/scratch/[A-Za-z0-9_/-]+\s*$")</text></inputExpression>
+      </input>
+      <input id="clause_vendored" label="Vendored path">
+        <inputExpression id="expr_vendored" typeRef="boolean"><text>matches(path, "^vendored/")</text></inputExpression>
+      </input>
+      <output id="out_decision" name="decision" typeRef="string"/>
+      <output id="out_rule_id" name="rule_id" typeRef="string"/>
+      <output id="out_reason" name="reason" typeRef="string"/>
+      <rule id="host_own_branch">
+        <description>Force-pushing a scratch branch the agent owns.</description>
+        <inputEntry id="r1_tool"><text>"bash"</text></inputEntry>
+        <inputEntry id="r1_kind"><text>"first_party"</text></inputEntry>
+        <inputEntry id="r1_push"><text>true</text></inputEntry>
+        <inputEntry id="r1_vendored"><text>-</text></inputEntry>
+        <outputEntry id="r1_decision"><text>"allow"</text></outputEntry>
+        <outputEntry id="r1_rule"><text>"host_own_branch"</text></outputEntry>
+        <outputEntry id="r1_reason"><text>"Your own scratch branch."</text></outputEntry>
+      </rule>
+      <rule id="host_vendored">
+        <description>Vendored files are not edited.</description>
+        <inputEntry id="r2_tool"><text>"edit","write"</text></inputEntry>
+        <inputEntry id="r2_kind"><text>-</text></inputEntry>
+        <inputEntry id="r2_push"><text>-</text></inputEntry>
+        <inputEntry id="r2_vendored"><text>true</text></inputEntry>
+        <outputEntry id="r2_decision"><text>"deny"</text></outputEntry>
+        <outputEntry id="r2_rule"><text>"host_vendored"</text></outputEntry>
+        <outputEntry id="r2_reason"><text>"Vendored content is never edited."</text></outputEntry>
+      </rule>
+      <rule id="host_no_rule">
+        <description>Defer to the seed.</description>
+        <inputEntry id="r3_tool"><text>-</text></inputEntry>
+        <inputEntry id="r3_kind"><text>-</text></inputEntry>
+        <inputEntry id="r3_push"><text>-</text></inputEntry>
+        <inputEntry id="r3_vendored"><text>-</text></inputEntry>
+        <outputEntry id="r3_decision"><text>"defer"</text></outputEntry>
+        <outputEntry id="r3_rule"><text>"host_no_rule"</text></outputEntry>
+        <outputEntry id="r3_reason"><text>"No host rule applies."</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

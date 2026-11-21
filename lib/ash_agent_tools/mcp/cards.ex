@@ -339,6 +339,25 @@ defmodule AshAgentTools.Mcp.Cards do
         []
       ),
       card(
+        "ash_gate",
+        "Check a tool call against the repository's pre-flight gate rules " <>
+          "(DMN tables, evaluated dry): allow, ask, deny or defer, with the " <>
+          "rule and its reason. Pass the harness's hook payload or a request " <>
+          "{tool, command, paths, cwd}. Appends one audit line; nothing else " <>
+          "is written (requires the optional ash_decisions dep).",
+        %{
+          "request" => %{
+            type: "object",
+            description:
+              "A Claude Code PreToolUse payload, an opencode tool call " <>
+                "({harness: \"opencode\", tool, args, directory}), or " <>
+                "{tool, command, paths, cwd}.",
+            additionalProperties: true
+          }
+        },
+        ["request"]
+      ),
+      card(
         "ash_daemon_status",
         "The daemon's own status: boot/compile times, reload count, loaded " <>
           "domain and resource counts, describe-cache size, BEAM memory.",
