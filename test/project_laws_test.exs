@@ -194,7 +194,7 @@ defmodule AshAgentTools.ProjectLawsTest do
 
     test "an unknown detector kind or tier is rejected" do
       for det <- [
-            %{kind: :bogus, tier: :likely, pattern: ~r/x/, hint: "h"},
+            %{kind: :no_such_detector_kind, tier: :likely, pattern: ~r/x/, hint: "h"},
             %{kind: :line, tier: :maybe, pattern: ~r/x/, hint: "h"}
           ] do
         assert_raise ArgumentError, ~r/invalid detector/, fn ->
