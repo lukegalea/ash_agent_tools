@@ -394,6 +394,14 @@ When the daemon does not answer, both ask a person instead of allowing
 (read-only tools pass). Debug a rule with `mix ash_agent.gate --explain
 '{"tool":"bash","command":"git push -f origin main","cwd":"."}'`.
 
+A host can put the calls no rule speaks to (`defer`) to a model as well:
+`config :ash_agent_tools, :gate, system_one: MyApp.Rung` names a module
+whose `judge/2` asks the host's declared questions and returns readings,
+which the host's `priv/decisions/agent_gate.dmn` bands into `allow`, `ask`
+or `deny`. The gate only lets this rung make a call stricter: an `allow`
+needs certified band tables, a `deny` becomes an `ask`, and an error or a
+timeout is an `ask`. See `AshAgentTools.Gate`.
+
 **The gate is a guardrail, not a security boundary.** Its patterns see
 only what they anticipate, and an agent can phrase a command none of them
 match. Sandboxes and the harness's own permissions remain the security

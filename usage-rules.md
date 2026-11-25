@@ -339,6 +339,22 @@ It needs the optional `ash_decisions` dep; no model is called.
 - **A guardrail, not a security boundary.** A pattern only sees what it
   anticipates. Sandboxes and harness permissions stay the security
   controls.
+- **The System One rung (optional).** `config :ash_agent_tools, :gate,
+  system_one: MyApp.Rung` puts a call every rules table deferred to the
+  host's model rung: `judge(request, opts)` returns `{:ok, %{inputs:,
+  certified:, audit:}}` or `{:error, reason}`, and the host's
+  `priv/decisions/agent_gate.dmn` bands `inputs` (plus `tool` and
+  `repo_kind`) into `allow`, `ask` or `deny`. The model call lives in the
+  rung, in the gate service: never in a read, a calculation or a policy
+  check. The gate caps the answer: an `allow` from band tables that are not
+  `certified` is an `ask`, a `deny` is an `ask` (a model never refuses on
+  its own), and an error, a timeout (`:system_one_timeout`, 4000 ms) or an
+  unreadable answer is `ask` with `rule_id: "system_one_unavailable"`. Only
+  `defer` reaches the rung. A rung that exports `child_spec/1` is started
+  by the daemon (its repo, say). The audit line carries `rung` and
+  `system_one` (the rung's `inputs`, `certified`, `capped` and `audit`).
+  Raise the adapter's `ASH_AGENT_GATE_TIMEOUT` (default 1 s) above the
+  rung's timeout.
 
 ## Optional concept tooling (the activation contract)
 

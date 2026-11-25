@@ -47,6 +47,42 @@ defmodule AshAgentTools.Gate do
   command no pattern anticipates. Sandboxes and permissions remain the
   security controls.
 
+  ## The System One rung (optional)
+
+  A call no rule speaks to (`defer`) is the residual: an obfuscated or a
+  novel command. A host can put it to a model through a second rung:
+
+      config :ash_agent_tools, :gate, system_one: MyApp.AgentGate.Rung
+
+  The module exports `judge(request, opts)`, called with the normalised
+  request and `root:`. It asks the host's declared questions about the
+  request (the model call happens there, in the gate service, never inside
+  a read, a calculation or a policy check) and returns
+
+      {:ok, %{inputs: %{"destructive" => "no", ...}, certified: true, audit: %{...}}}
+
+  or `{:error, reason}`. `inputs` are what the host's banding table,
+  `priv/decisions/agent_gate.dmn`, reads (with `tool` and `repo_kind`
+  added); it answers `allow`, `ask` or `deny` with a `rule_id` and a
+  `reason`, like the rules tables. `certified` says whether the band
+  tables behind `inputs` are certified; `audit` is logged as given. A
+  module that exports `child_spec/1` is started by the daemon
+  (`system_one_children/1`): the rung's own runtime, such as its repo.
+
+  The rung can only make a call stricter, never let one through on its
+  own (law 4 of the judgment substrate: advisory in tooling):
+
+    * an `allow` from tables that are not certified is an `ask`
+      (uncertified judgment never allows);
+    * a `deny` is an `ask`: the model rung never refuses a call by itself;
+    * an error, a timeout (`:system_one_timeout`, default 4000 ms), a
+      missing banding table or an answer the table cannot read is an `ask`
+      with `rule_id: "system_one_unavailable"`, never an `allow`.
+
+  An `allow` the rung keeps means what a rule's `allow` means: the
+  harness's own permissions decide. A `deny` from the rules tables never
+  reaches the rung, and nor does any answer other than `defer`.
+
   ## Audit
 
   `check/2` appends one JSON line per decision to
@@ -61,6 +97,9 @@ defmodule AshAgentTools.Gate do
   alias AshAgentTools.Gate.Request
 
   @host_table "priv/decisions/agent_gate_rules.dmn"
+  @system_one_table "priv/decisions/agent_gate.dmn"
+  @system_one_timeout 4_000
+  @system_one_decisions ~w(allow ask deny)
   @config_file ".agents/gate.json"
   @log_file ".agents/logs/gate.jsonl"
   @decisions ~w(allow ask deny defer)
@@ -77,6 +116,8 @@ defmodule AshAgentTools.Gate do
           path: String.t() | nil,
           evaluations: [map()],
           request: Request.t() | nil,
+          rung: String.t(),
+          system_one: map() | nil,
           duration_us: non_neg_integer()
         }
 
@@ -93,6 +134,12 @@ defmodule AshAgentTools.Gate do
     * `:tables` — the table files to evaluate, in order, instead of the
       default pair
     * `:log` — `false` to skip the audit line, or a path to append it to
+    * `:system_one` — the System One rung's module, or `false` for none
+      (default `config :ash_agent_tools, :gate, system_one: ...`)
+    * `:system_one_timeout` — milliseconds the rung may take (default
+      4000, or the `:gate` config's `:system_one_timeout`)
+    * `:system_one_table` — the rung's banding table (default
+      `priv/decisions/agent_gate.dmn` under the root)
   """
   @spec check(map(), keyword()) :: result()
   def check(payload, opts \\ []) do
@@ -146,7 +193,7 @@ defmodule AshAgentTools.Gate do
     Availability.ensure_active!(:ash_decisions)
 
     reports =
-      Enum.map(tables(opts), fn path ->
+      Enum.map(tables(opts) ++ system_one_tables(opts), fn path ->
         with {:ok, xml} <- File.read(path),
              {:ok, graph} <- AshDecisions.Compiler.compile(xml) do
           result = AshDecisions.Verifier.verify(graph)
@@ -169,6 +216,23 @@ defmodule AshAgentTools.Gate do
       end)
 
     %{ok?: Enum.all?(reports, & &1.ok?), tables: reports}
+  end
+
+  @doc """
+  The System One rung's children for a supervisor: `[module]` when the
+  configured rung exports `child_spec/1`, else `[]`.
+  """
+  @spec system_one_children(keyword()) :: [module()]
+  def system_one_children(opts \\ []) do
+    case system_one(opts) do
+      nil ->
+        []
+
+      module ->
+        if Code.ensure_loaded?(module) and function_exported?(module, :child_spec, 1),
+          do: [module],
+          else: []
+    end
   end
 
   @doc """
@@ -199,7 +263,11 @@ defmodule AshAgentTools.Gate do
       try do
         Availability.ensure_active!(:ash_decisions)
         request = Request.normalize(payload, config(opts))
-        evaluate_request(request, tables(opts))
+
+        request
+        |> evaluate_request(tables(opts))
+        |> Map.merge(%{rung: "deterministic", system_one: nil})
+        |> system_one_rung(system_one(opts), opts)
       rescue
         error -> error_result("the gate could not decide: #{Exception.message(error)}")
       end
@@ -274,7 +342,9 @@ defmodule AshAgentTools.Gate do
       matched_rule_ids: [],
       path: nil,
       evaluations: [],
-      request: nil
+      request: nil,
+      rung: "deterministic",
+      system_one: nil
     }
   end
 
@@ -333,6 +403,180 @@ defmodule AshAgentTools.Gate do
 
   defp hash(xml), do: :crypto.hash(:sha256, xml) |> Base.encode16(case: :lower)
 
+  # ── the System One rung ───────────────────────────────────────────────────
+
+  defp system_one_rung(%{decision: "defer"} = result, module, opts) when module != nil do
+    started = System.monotonic_time(:microsecond)
+
+    outcome =
+      with {:ok, answer} <- rung_answer(call_rung(module, result.request, opts)),
+           {:ok, evaluation} <- band(answer, result.request, opts) do
+        {:ok, answer, evaluation}
+      end
+
+    us = System.monotonic_time(:microsecond) - started
+
+    case outcome do
+      {:ok, answer, evaluation} -> rung_result(result, answer, evaluation, us)
+      {:error, reason} -> rung_unavailable(result, reason, us)
+    end
+  end
+
+  defp system_one_rung(result, _module, _opts), do: result
+
+  defp rung_result(result, answer, evaluation, us) do
+    {decision, reason, capped} = bound(evaluation, answer.certified)
+
+    %{
+      result
+      | decision: decision,
+        rule_id: evaluation.rule_id,
+        reason: reason,
+        table: evaluation.table,
+        definition_hash: evaluation.definition_hash,
+        matched_rule_ids: evaluation.matched_rule_ids,
+        rung: "system_one",
+        system_one: %{
+          outcome: "answered",
+          table_decision: evaluation.decision,
+          capped: capped,
+          certified: answer.certified,
+          inputs: answer.inputs,
+          audit: answer.audit,
+          duration_us: us
+        }
+    }
+  end
+
+  # Law 4: the model rung makes a call stricter, never lets one through.
+  defp bound(%{decision: "deny", reason: reason}, _certified),
+    do:
+      {"ask", "System One would refuse this: #{reason} (a model never refuses on its own)",
+       "deny"}
+
+  defp bound(%{decision: "allow", reason: reason}, false),
+    do:
+      {"ask",
+       "System One would allow this (#{reason}), but its band tables are not certified: a person decides",
+       "uncertified_allow"}
+
+  defp bound(%{decision: decision, reason: reason}, _certified), do: {decision, reason, nil}
+
+  defp rung_unavailable(result, reason, us) do
+    %{
+      result
+      | decision: "ask",
+        rule_id: "system_one_unavailable",
+        reason: "System One could not answer (#{reason_text(reason)}): a person decides",
+        table: nil,
+        definition_hash: nil,
+        matched_rule_ids: [],
+        rung: "system_one",
+        system_one: %{outcome: "model_unavailable", error: inspect(reason), duration_us: us}
+    }
+  end
+
+  defp reason_text(:timeout), do: "timed out"
+  defp reason_text({:raised, _message}), do: "the rung raised"
+  defp reason_text({:exited, _reason}), do: "the rung exited"
+  defp reason_text({:banding_table, _reason}), do: "its banding table could not be evaluated"
+
+  defp reason_text({:not_a_system_one_decision, decision}),
+    do: "its banding table answered #{decision}"
+
+  defp reason_text({:unexpected_answer, _answer}), do: "the rung's answer is not the contract"
+  defp reason_text(_reason), do: "the rung returned an error"
+
+  # The rung runs in its own process, so a timeout can stop it and a crash
+  # cannot take the hook's request with it.
+  defp call_rung(module, request, opts) do
+    caller = self()
+    ref = make_ref()
+    rung_opts = [root: root(opts)]
+
+    {pid, monitor} =
+      spawn_monitor(fn ->
+        answer =
+          try do
+            module.judge(request, rung_opts)
+          rescue
+            error -> {:error, {:raised, Exception.message(error)}}
+          end
+
+        send(caller, {ref, answer})
+      end)
+
+    receive do
+      {^ref, answer} ->
+        Process.demonitor(monitor, [:flush])
+        answer
+
+      {:DOWN, ^monitor, :process, ^pid, reason} ->
+        {:error, {:exited, reason}}
+    after
+      system_one_timeout(opts) ->
+        Process.exit(pid, :kill)
+        Process.demonitor(monitor, [:flush])
+
+        receive do
+          {^ref, _late} -> :ok
+        after
+          0 -> :ok
+        end
+
+        {:error, :timeout}
+    end
+  end
+
+  defp rung_answer({:ok, %{inputs: %{} = inputs, certified: certified} = answer})
+       when is_boolean(certified),
+       do: {:ok, %{inputs: inputs, certified: certified, audit: Map.get(answer, :audit, %{})}}
+
+  defp rung_answer({:error, reason}), do: {:error, reason}
+  defp rung_answer(other), do: {:error, {:unexpected_answer, other}}
+
+  defp band(answer, request, opts) do
+    inputs =
+      Map.merge(answer.inputs, %{"tool" => request.tool, "repo_kind" => request.repo.kind})
+
+    case evaluate_table(system_one_table(opts), inputs) do
+      {:ok, %{decision: decision} = evaluation} when decision in @system_one_decisions ->
+        {:ok, evaluation}
+
+      {:ok, evaluation} ->
+        {:error, {:not_a_system_one_decision, evaluation.decision}}
+
+      {:error, reason} ->
+        {:error, {:banding_table, reason}}
+    end
+  end
+
+  defp system_one(opts) do
+    case Keyword.get_lazy(opts, :system_one, fn -> gate_config(:system_one) end) do
+      false -> nil
+      module -> module
+    end
+  end
+
+  defp system_one_timeout(opts) do
+    Keyword.get_lazy(opts, :system_one_timeout, fn ->
+      gate_config(:system_one_timeout) || @system_one_timeout
+    end)
+  end
+
+  defp system_one_table(opts),
+    do:
+      Keyword.get_lazy(opts, :system_one_table, fn -> Path.join(root(opts), @system_one_table) end)
+
+  # The rung's banding table is verified with the rules tables when the rung
+  # is configured and the table exists.
+  defp system_one_tables(opts) do
+    if system_one(opts), do: Enum.filter([system_one_table(opts)], &File.regular?/1), else: []
+  end
+
+  defp gate_config(key),
+    do: :ash_agent_tools |> Application.get_env(:gate, []) |> Keyword.get(key)
+
   # ── configuration and audit ───────────────────────────────────────────────
 
   defp root(opts), do: Keyword.get_lazy(opts, :root, &File.cwd!/0)
@@ -385,6 +629,8 @@ defmodule AshAgentTools.Gate do
           result.evaluations,
           &Map.take(&1, [:table, :definition_hash, :rule_id, :matched_rule_ids])
         ),
+      rung: result.rung,
+      system_one: result.system_one,
       duration_us: result.duration_us
     }
   end
