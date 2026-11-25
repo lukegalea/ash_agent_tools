@@ -11,6 +11,8 @@ defmodule AshAgentTools.Daemon.Supervisor do
   ├── AshAgentTools.Daemon.Runtime           (compile-only boot; caches; reload mutex)
   ├── AshAgentTools.Daemon.Watcher           (lib/ + config/ → debounced reload)
   │                                           (only when :file_system is available)
+  ├── the gate's System One rung             (only when configured with a child_spec;
+  │                                           AshAgentTools.Gate.system_one_children/1)
   └── Bandit                                 (AshAgentTools.Mcp.Plug on 127.0.0.1:4100)
   ```
 
@@ -91,6 +93,7 @@ defmodule AshAgentTools.Daemon.Supervisor do
         {AshAgentTools.Daemon.Runtime, runtime_opts}
       ] ++
         watcher_child(watcher_opts, cfg.watch?) ++
+        AshAgentTools.Gate.system_one_children() ++
         http_child(cfg, opts)
 
     Supervisor.init(children, strategy: :one_for_one)

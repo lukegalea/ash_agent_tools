@@ -21,8 +21,14 @@ defmodule Mix.Tasks.AshAgent.Gate do
   `--explain` takes a harness payload or a request (see
   `AshAgentTools.Gate.Request`) and prints the decision, the normalised
   request and every table evaluated, without writing the audit log.
-  `--verify` runs the `ash_decisions` verifier over every table and exits
+  `--verify` runs the `ash_decisions` verifier over every table (the System
+  One rung's banding table too, when the rung is configured) and exits
   non-zero when one does not pass. **stdout is pure JSON.**
+
+  When a System One rung is configured (`config :ash_agent_tools, :gate,
+  system_one: ...`), `--explain` starts its runtime first
+  (`AshAgentTools.Gate.system_one_children/1`) and a deferred call is put
+  to it, as the daemon does.
 
   Requires the optional `ash_decisions` dependency.
 
@@ -54,6 +60,7 @@ defmodule Mix.Tasks.AshAgent.Gate do
       explain = opts[:explain] ->
         case Jason.decode(read(explain)) do
           {:ok, %{} = payload} ->
+            start_system_one()
             payload |> AshAgentTools.Gate.explain() |> emit(opts)
 
           _ ->
@@ -67,6 +74,13 @@ defmodule Mix.Tasks.AshAgent.Gate do
 
       true ->
         Mix.raise("Usage: mix ash_agent.gate --explain JSON | --verify")
+    end
+  end
+
+  defp start_system_one do
+    case AshAgentTools.Gate.system_one_children() do
+      [] -> :ok
+      children -> {:ok, _supervisor} = Supervisor.start_link(children, strategy: :one_for_one)
     end
   end
 

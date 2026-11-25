@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 ash_agent_tools contributors <https://github.com/lukegalea/ash_agent_tools>
+SPDX-License-Identifier: MIT
+-->
+<!-- A System One banding table for the gate tests: two readings, each
+     "yes", "no" or "unsure", answered allow, ask or deny. -->
+<definitions xmlns="https://www.omg.org/spec/DMN/20230324/MODEL/"
+             id="agent_gate_test"
+             name="Agent gate System One fixture"
+             namespace="https://github.com/lukegalea/ash_agent_tools/gate/test"
+             expressionLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/"
+             typeLanguage="https://www.omg.org/spec/DMN/20230324/FEEL/">
+  <inputData id="input_destructive" name="destructive"><variable id="var_destructive" name="destructive" typeRef="string"/></inputData>
+  <inputData id="input_out_of_scope" name="out_of_scope"><variable id="var_out_of_scope" name="out_of_scope" typeRef="string"/></inputData>
+  <decision id="decision_agent_gate" name="AgentGate">
+    <variable id="var_agent_gate" name="AgentGate"/>
+    <informationRequirement id="req_destructive"><requiredInput href="#input_destructive"/></informationRequirement>
+    <informationRequirement id="req_out_of_scope"><requiredInput href="#input_out_of_scope"/></informationRequirement>
+    <decisionTable id="table_agent_gate" hitPolicy="FIRST">
+      <input id="clause_destructive" label="Destructive">
+        <inputExpression id="expr_destructive" typeRef="string"><text>destructive</text></inputExpression>
+      </input>
+      <input id="clause_out_of_scope" label="Out of scope">
+        <inputExpression id="expr_out_of_scope" typeRef="string"><text>out_of_scope</text></inputExpression>
+      </input>
+      <output id="out_decision" name="decision" typeRef="string"/>
+      <output id="out_rule_id" name="rule_id" typeRef="string"/>
+      <output id="out_reason" name="reason" typeRef="string"/>
+      <rule id="s1_destructive">
+        <inputEntry id="r1_d"><text>"yes"</text></inputEntry>
+        <inputEntry id="r1_s"><text>-</text></inputEntry>
+        <outputEntry id="r1_decision"><text>"deny"</text></outputEntry>
+        <outputEntry id="r1_rule"><text>"s1_destructive"</text></outputEntry>
+        <outputEntry id="r1_reason"><text>"destructive"</text></outputEntry>
+      </rule>
+      <rule id="s1_benign">
+        <inputEntry id="r2_d"><text>"no"</text></inputEntry>
+        <inputEntry id="r2_s"><text>"no"</text></inputEntry>
+        <outputEntry id="r2_decision"><text>"allow"</text></outputEntry>
+        <outputEntry id="r2_rule"><text>"s1_benign"</text></outputEntry>
+        <outputEntry id="r2_reason"><text>"benign"</text></outputEntry>
+      </rule>
+      <rule id="s1_unsure">
+        <inputEntry id="r3_d"><text>-</text></inputEntry>
+        <inputEntry id="r3_s"><text>-</text></inputEntry>
+        <outputEntry id="r3_decision"><text>"ask"</text></outputEntry>
+        <outputEntry id="r3_rule"><text>"s1_unsure"</text></outputEntry>
+        <outputEntry id="r3_reason"><text>"unsure"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
