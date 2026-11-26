@@ -142,7 +142,20 @@ defmodule AshAgentTools.DomainMap do
       end
 
     rel_edges = relationship_edges(resources, ctx_by_resource, ctx_by_domain)
-    signals = Ash.Signals.Graph.build(resources: resources)
+
+    signals =
+      Ash.Signals.Graph.build(resources: resources)
+      |> Enum.filter(fn entry ->
+        # The graph builder's listener search reaches loaded modules outside
+        # `resources:` (consolidation off), so an unrelated fixture's signal
+        # would otherwise render into a map that never declared it. The map
+        # speaks for the registered domains only.
+        emitters = Enum.map(entry.emitters, &record_resource/1)
+        listeners = Enum.map(entry.listeners, &record_resource/1)
+
+        Enum.all?(emitters ++ listeners, &(&1 in resources)) and emitters != [] and
+          listeners != []
+      end)
 
     model = %{
       data: data,
@@ -759,12 +772,20 @@ defmodule AshAgentTools.DomainMap do
     end
   end
 
+  # Signal-graph records differ by shape: `signals_in` listeners arrive as
+  # `Ash.Resource.SignalListener` structs, `emit` declarations as plain maps —
+  # both carry the resource under :resource. Extract it here, not at the call
+  # sites, so a registry with a real signal graph renders instead of feeding
+  # the record itself into `Ash.Resource.Info.domain/1`.
+  defp record_resource(record) when is_map(record), do: Map.get(record, :resource)
+  defp record_resource(_), do: nil
+
   defp counterpart_ctxs(entry, "emits", model) do
-    entry.listeners |> ctx_names(model) |> join_names()
+    entry.listeners |> Enum.map(&record_resource/1) |> ctx_names(model) |> join_names()
   end
 
   defp counterpart_ctxs(entry, "listens", model) do
-    entry.emitters |> Enum.map(& &1.resource) |> ctx_names(model) |> join_names()
+    entry.emitters |> Enum.map(&record_resource/1) |> ctx_names(model) |> join_names()
   end
 
   defp ctx_names(resources, model) do
@@ -777,8 +798,17 @@ defmodule AshAgentTools.DomainMap do
 
   defp ctx_of_resource(resource, model) do
     Map.get(model.ctx_by_resource, resource) ||
-      model.ctx_by_domain[Registry.module_name(Ash.Resource.Info.domain(resource))] ||
+      domain_ctx(resource, model) ||
       Registry.module_name(resource)
+  end
+
+  # A resource may declare no `domain:` (a bare `signals_in` listener fixture,
+  # for one); it then attributes to itself instead of crashing the render.
+  defp domain_ctx(resource, model) do
+    case Ash.Resource.Info.domain(resource) do
+      nil -> nil
+      domain -> model.ctx_by_domain[Registry.module_name(domain)]
+    end
   end
 
   defp join_names([]), do: "—"

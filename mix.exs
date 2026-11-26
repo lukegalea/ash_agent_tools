@@ -22,6 +22,11 @@ defmodule AshAgentTools.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
+
+      # The domain-map tests define `signals_in` listeners in test/support,
+      # compiled after the app: consolidation would hide them from the graph
+      # the renderer reads.
+      ash: [consolidate_signals: Mix.env() != :test],
       package: package(),
       source_url: "https://github.com/lukegalea/ash_agent_tools",
       docs: docs(),

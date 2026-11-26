@@ -87,6 +87,40 @@ defmodule AshAgentTools.DomainMapRenderTest do
     assert regions()["signals"] =~ "No declared signals cross the registered domains"
   end
 
+  test "a registry with a real signal graph renders rows and counterparts" do
+    fixture =
+      put_in(fixture()["contexts"], [
+        %{
+          "id" => "sources",
+          "name" => "Sources",
+          "domain" => "AshAgentTools.Test.SignalDomain",
+          "plane" => "content",
+          "mission" => "Emits the test signal.",
+          "packages" => [],
+          "adrs" => [],
+          "terms" => [
+            %{"term" => "Source", "definition" => "The emitter."},
+            %{"term" => "Sink", "definition" => "The listener."},
+            %{"term" => "Signal", "definition" => "The declared fact."}
+          ],
+          "edges" => []
+        }
+      ])
+
+    regions =
+      fixture
+      |> DomainMap.build_model([AshAgentTools.Test.SignalDomain])
+      |> DomainMap.regions()
+
+    # Without the record-shape fix this raised: the counterpart extraction
+    # handed whole listener/emit records to `Ash.Resource.Info.domain/1`.
+    assert regions["context:sources"] =~
+             "| emits | `AshAgentTools.Test.Signals.thing_happened` | sources |"
+
+    assert regions["context:sources"] =~
+             "| listens | `AshAgentTools.Test.Signals.thing_happened` | sources |"
+  end
+
   test "rewrite pads every generated region with blank lines" do
     regions = regions()
 
