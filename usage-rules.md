@@ -174,53 +174,28 @@ The Mix tasks remain for shell-only agents; they wrap the same functions.
 
 For agents without code execution:
 
-- `mix ash_agent.describe` — JSON summary of loaded domains/resources
-- `mix ash_agent.describe MyApp.Post` — resource description
-- `mix ash_agent.describe MyApp.Post create` — action description
-- `mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'` — validation
-  report
-- `mix ash_agent.can MyApp.Order approve --actor MyApp.User:8e1c-...` — the
-  actor-aware policy verdict as JSON (also `--actor none`, `--actor record`,
-  `--record ID`, optional JSON params); nothing executes
-- `mix ash_agent.search TERM [--kind KIND]...` — symbol search across loaded
-  resources; prints `{"query","kinds","count","results"}`
-- `mix ash_agent.context lib/my_app/accounts/post.ex:42` — the resource,
-  symbol, nearest symbols, and references at a file position (also accepts
-  the two-argument `PATH LINE` form)
-- `mix ash_agent.diff OLD NEW` — semantic-manifest diff report (does not
-  boot your application; pure file processing)
-- `mix ash_agent.runtime snapshot|top|tree [N|APP]` — BEAM runtime views
-  (`--trace-id`/`--correlation-id` echoed; `top` takes `--sort`; `tree`
-  takes `--depth`); runs `app.start` first so you observe *your* tree
-- `mix ash_agent.gaps` — the kaizen tool-gap digest (reads the ETS
-  aggregate of the VM where `AshAgentTools.Kaizen.attach/0` was called; a
-  fresh mix boot has none)
-- `mix ash_agent.edit OP NAME_PATH [--body ...] [--write --expected-digest D]`
-  — semantic DSL edits: `replace`, `insert-before`, `insert-after`,
-  `delete`; dry-run by default
-- `mix ash_agent.laws [FILE...] [--code SNIPPET] [-] [--diff] [--min-tier TIER]`
-  — the iron-law judge: violations of the 26 laws as JSON (`--law ID`
-  restricts; `-` reads stdin). No boot at all — pure text processing. With
-  no arguments it prints the law registry.
-- `mix ash_agent.rules [MODULE] [--facts JSON | --bundle FILE --facts JSON]`
-  — the optional `ash_rules` tooling: list loaded rule bundles, describe
-  one, or **dry-evaluate** a bundle against fact triples (see the optional
-  tooling section below)
-- `mix ash_agent.transitions RESOURCE [--no-mermaid]` — the optional
-  `ash_state_machine` tooling: states, transitions, and Mermaid diagrams
-- `mix ash_agent.processes [DOMAIN] [--key K]` — the optional `ash_bpmn`
-  tooling: definitions per key
-- `mix ash_agent.graph KEY [--version N] [--draft] [--no-elements]` — one
-  definition's compiled graph + element digests
-- `mix ash_agent.instance [--instance-id ID | --subject TYPE:ID] [--key K]`
-  — in-flight instances, tokens, and open tasks (read-only)
-- `mix ash_agent.decisions [DOMAIN] [--key K] [--graph] [--verification]`
-  — the optional `ash_decisions` catalogue
-- `mix ash_agent.evaluate KEY JSON_INPUTS [--decision NAME] [--version N]`
-  — dry evaluation; records nothing
-- `mix ash_agent.serve [--port N] [--no-watch]` — the supervised MCP
-  daemon (see the next section). Same compile-only boot contract as the
-  other introspection tasks; the application is never started.
+- `mix ash_agent.describe` — Describes Ash resources and actions as JSON. No arguments → discovery summary; `MyApp.Post` → resource description; `MyApp.Post create` → action description
+- `mix ash_agent.validate MyApp.Post create '{"title": "Hi"}'` — Validates params for an Ash action without running it
+- `mix ash_agent.can MyApp.Order approve --actor MyApp.User:8e1c-...` — Answers can <actor> perform <action>? as JSON, without executing (also `--actor none`, `--actor record`, `--record ID`, optional JSON params)
+- `mix ash_agent.search TERM [--kind KIND]...` — Searches symbols across loaded Ash resources as JSON; prints `{"query","kinds","count","results"}`
+- `mix ash_agent.context lib/my_app/accounts/post.ex:42` — Describes the Ash context at a file position as JSON (also accepts the two-argument `PATH LINE` form)
+- `mix ash_agent.diff OLD NEW` — Diffs two semantic-manifest JSON files as JSON. Does not boot your application; pure file processing
+- `mix ash_agent.runtime snapshot|top|tree [N|APP]` — BEAM runtime snapshot, top processes, or supervision tree as JSON (`--trace-id`/`--correlation-id` echoed; `top` takes `--sort`; `tree` takes `--depth`); runs `app.start` first so you observe *your* tree
+- `mix ash_agent.gaps` — Digests the kaizen tool-gap telemetry aggregate as JSON (reads the ETS aggregate of the VM where `AshAgentTools.Kaizen.attach/0` was called; a fresh mix boot has none)
+- `mix ash_agent.edit OP NAME_PATH [--body ...] [--write --expected-digest D]` — Semantic DSL-entity edits (dry-run by default) as JSON: `replace`, `insert-before`, `insert-after`, `delete`
+- `mix ash_agent.laws [FILE...] [--code SNIPPET] [-] [--diff] [--min-tier TIER]` — Judges code against the codified iron laws as JSON (`--law ID` restricts; `-` reads stdin). No boot at all — pure text processing. With no arguments it prints the law registry.
+- `mix ash_agent.rules [MODULE] [--facts JSON | --bundle FILE --facts JSON]` — Lists AshRules rule sets and dry-evaluates them as JSON (the optional `ash_rules` tooling; see the optional tooling section below)
+- `mix ash_agent.transitions RESOURCE [--no-mermaid]` — Describes an AshStateMachine resource as JSON (+ Mermaid); the optional `ash_state_machine` tooling
+- `mix ash_agent.processes [DOMAIN] [--key K]` — Lists BPMN process definitions per key as JSON; the optional `ash_bpmn` tooling
+- `mix ash_agent.graph KEY [--version N] [--draft] [--no-elements]` — Prints one BPMN definition's compiled graph as JSON, plus the element digests
+- `mix ash_agent.instance [--instance-id ID | --subject TYPE:ID] [--key K]` — Shows in-flight BPMN instances, tokens, and open tasks as JSON (read-only)
+- `mix ash_agent.decisions [DOMAIN] [--key K] [--graph] [--verification]` — Lists DMN decision definitions per key as JSON; the optional `ash_decisions` catalogue
+- `mix ash_agent.evaluate KEY JSON_INPUTS [--decision NAME] [--version N]` — Dry-evaluates a DMN decision against JSON inputs; records nothing
+- `mix ash_agent.subjects ROOT` — Extracts code units as judgment subjects, as JSON (see "Code as judgment subjects" below)
+- `mix ash_agent.seeds ROOT --standards FILE` — Seed labels for standards over code, from the laws judge and fix commits, as JSON
+- `mix ash_agent.gate --verify | --explain JSON` — Explains a pre-flight gate decision, or verifies the gate's tables, as JSON (see "The pre-flight gate" above)
+- `mix ash_agent.serve [--port N] [--no-watch]` — Serve the Ash introspection MCP daemon (read-only); see the next section. Same compile-only boot contract as the other introspection tasks; the application is never started.
+- `mix ash_agent.domain_map [--check] [--init] [--source PATH] [--target PATH] [--adr-dir PATH]` — Render the domain map regions in a markdown file from an editorial JSON + Ash introspection (see "The domain map" below)
 
 All tasks run under the **compile-only boot contract** (except
 `ash_agent.runtime`, which is *justified* in a full boot — the running tree
@@ -242,6 +217,37 @@ actions carry `did_you_mean`). Cold starts may still print dependency
 compilation before the task body runs, so compile before parsing if that
 matters. Flags: `--out FILE` writes the JSON to a file instead of stdout;
 `--verbose` restores the logs (breaking pure-JSON stdout).
+
+## The domain map
+
+`mix ash_agent.domain_map` renders the domain map — a host's bounded contexts,
+their planes, substrates and relationships — into the marked
+`<!-- domain-map:<name>:start/end -->` regions of a markdown file, from two
+inputs: the host's editorial JSON (default `docs/domain-map.json`) and what
+the registered domains introspect (`config :my_app, ash_domains`, each
+domain's resources, relationships, and the declared signal graph).
+
+- **Editorial content lives in the host's JSON.** Everything between region
+  markers is generated — never hand-edit a generated region; change the JSON
+  or the declarations and re-run the task. Generated cells never carry prose
+  the declarations do not themselves carry.
+- **Host policy is JSON data, not code**: `"first_party_orgs"` (which git
+  origins count as first-party, checked against `mix.lock` completeness),
+  `"vendor_tokens"` (strings whose resource rows are omitted from the
+  artifact), the in-repo substrate's `"path"`, and `"draft": true` while a
+  seed is still being written.
+- **Regeneration is manual by design** — derived output arrives through
+  review. CI gates drift with `mix ash_agent.domain_map --check`, which exits
+  non-zero when the regions disagree with the JSON or the domains.
+- **Adoption**: `mix ash_agent.domain_map --init` seeds the JSON (one plane,
+  one context per registered domain, `"draft": true` — validation holds to
+  referential integrity, lock existence and completeness until you remove the
+  flag) and a skeleton markdown, then prints the next steps. It never
+  rewrites an existing file.
+- `--source`, `--target` and `--adr-dir` relocate the files when a host keeps
+  them elsewhere. The renderers are pure code (`AshAgentTools.DomainMap`):
+  `validate!/1` validates the JSON, `build_model/2` + `regions/3` render the
+  region strings — tests and CI gates call the same functions the task calls.
 
 ## The MCP daemon (`mix ash_agent.serve`)
 
