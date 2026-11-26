@@ -89,6 +89,12 @@ defmodule AshAgentTools.DomainMapRenderTest do
 
   test "a registry with a real signal graph renders rows and counterparts" do
     fixture =
+      put_in(fixture()["planes"], [
+        %{"id" => "content", "name" => "Content", "purpose" => "The corpus plane."},
+        %{"id" => "sink", "name" => "Sink", "purpose" => "Where the signal lands."}
+      ])
+
+    fixture =
       put_in(fixture()["contexts"], [
         %{
           "id" => "sources",
@@ -104,20 +110,47 @@ defmodule AshAgentTools.DomainMapRenderTest do
             %{"term" => "Signal", "definition" => "The declared fact."}
           ],
           "edges" => []
+        },
+        %{
+          "id" => "sinks",
+          "name" => "Sinks",
+          "domain" => "AshAgentTools.Test.SignalSinkDomain",
+          "plane" => "sink",
+          "mission" => "Listens to the test signal.",
+          "packages" => [],
+          "adrs" => [],
+          "terms" => [
+            %{"term" => "Reaction", "definition" => "What a signal triggers."},
+            %{"term" => "Delivery", "definition" => "When the listener runs."},
+            %{"term" => "Signal", "definition" => "The declared fact."}
+          ],
+          "edges" => []
         }
       ])
 
     regions =
       fixture
-      |> DomainMap.build_model([AshAgentTools.Test.SignalDomain])
+      |> DomainMap.build_model([
+        AshAgentTools.Test.SignalDomain,
+        AshAgentTools.Test.SignalSinkDomain
+      ])
       |> DomainMap.regions()
 
-    # Without the record-shape fix this raised: the counterpart extraction
-    # handed whole listener/emit records to `Ash.Resource.Info.domain/1`.
-    assert regions["context:sources"] =~
-             "| emits | `AshAgentTools.Test.Signals.thing_happened` | sources |"
+    # The cross-context dotted edge, from the declared graph.
+    assert regions["graph"] =~ ~s(ctx_sources -.->|"1 signal"| ctx_sinks)
+
+    # The flow table and both context sections name the OTHER side of the
+    # flow. Without the record-shape fix this raised: the counterpart
+    # extraction handed whole listener/emit records to
+    # `Ash.Resource.Info.domain/1`; with a wrong counterpart it would name
+    # the emitter's own context here.
+    assert regions["signals"] =~
+             "| `AshAgentTools.Test.Signals.thing_happened` | sources | sinks |"
 
     assert regions["context:sources"] =~
+             "| emits | `AshAgentTools.Test.Signals.thing_happened` | sinks |"
+
+    assert regions["context:sinks"] =~
              "| listens | `AshAgentTools.Test.Signals.thing_happened` | sources |"
   end
 

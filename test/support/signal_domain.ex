@@ -66,6 +66,19 @@ defmodule AshAgentTools.Test.SignalSink do
   end
 end
 
+defmodule AshAgentTools.Test.SignalSinkDomain do
+  @moduledoc """
+  A second domain for the sink, so the domain map's counterpart extraction has
+  to cross a context boundary to name the right side of the flow.
+  """
+
+  use Ash.Domain
+
+  resources do
+    resource AshAgentTools.Test.SignalSink
+  end
+end
+
 defmodule AshAgentTools.Test.SignalDomain do
   @moduledoc """
   The domain hosting the signal fixtures, kept out of
@@ -76,6 +89,5 @@ defmodule AshAgentTools.Test.SignalDomain do
 
   resources do
     resource AshAgentTools.Test.SignalSource
-    resource AshAgentTools.Test.SignalSink
   end
 end
