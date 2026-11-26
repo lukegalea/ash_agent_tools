@@ -437,12 +437,7 @@ defmodule AshAgentTools.DomainMap do
 
   defp resources(domains) do
     domains
-    |> Enum.flat_map(fn domain ->
-      case Ash.Domain.Info.resources(domain) do
-        resources when is_list(resources) -> resources
-        _ -> []
-      end
-    end)
+    |> Enum.flat_map(&Ash.Domain.Info.resources/1)
     |> Enum.uniq()
     |> Enum.sort()
   end
