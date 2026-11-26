@@ -21,7 +21,9 @@ end
 defmodule AshAgentTools.Test.SignalSource do
   @moduledoc "Emits the test signal from its create action."
 
-  use Ash.Resource, data_layer: Ash.DataLayer.Ets
+  use Ash.Resource,
+    domain: AshAgentTools.Test.SignalDomain,
+    data_layer: Ash.DataLayer.Ets
 
   ets do
     private? true
@@ -42,7 +44,9 @@ end
 defmodule AshAgentTools.Test.SignalSink do
   @moduledoc "Listens to the test signal through `signals_in`."
 
-  use Ash.Resource, data_layer: Ash.DataLayer.Ets
+  use Ash.Resource,
+    domain: AshAgentTools.Test.SignalSinkDomain,
+    data_layer: Ash.DataLayer.Ets
 
   ets do
     private? true
