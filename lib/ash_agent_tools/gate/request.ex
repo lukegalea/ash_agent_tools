@@ -31,11 +31,15 @@ defmodule AshAgentTools.Gate.Request do
 
   Tool names are lower-cased and the editing tools fold into `"edit"`
   (`MultiEdit`, `NotebookEdit`, opencode's `patch`), so one table answers
-  both harnesses.
+  both harnesses. An MCP tool that does what a built-in does is folded the
+  same way, by the tool's own name (`mcp__<server>__<tool>` in Claude Code,
+  `<server>_<tool>` in opencode): a shell tool is `"bash"`, a tool that
+  writes files is `"edit"` (its `relative_path` is the path), and a tool
+  that evaluates code in the project is `"eval"`, which no pattern can read.
 
   `repo` is the repository the call acts on: for a shell command, the
-  directory of a leading `cd DIR &&` or a `git -C DIR`, else `cwd`; for a
-  path, the path's own repository (see `repo_for/2`). Its `kind` comes from
+  directory it changes to (see `subject_dir/2`), else `cwd`; for a path,
+  the path's own repository (see `repo_for/2`). Its `kind` comes from
   the repository's git remotes and the host's `.agents/gate.json`:
 
       {"version": 1,
@@ -51,6 +55,20 @@ defmodule AshAgentTools.Gate.Request do
   """
 
   @edit_tools ~w(edit multiedit notebookedit patch apply_patch)
+
+  # MCP tools that do what a built-in does, by the tool's own name.
+  @mcp_tools %{
+    "execute_shell_command" => "bash",
+    "project_eval" => "eval",
+    "create_text_file" => "edit",
+    "replace_content" => "edit",
+    "replace_in_files" => "edit",
+    "replace_symbol_body" => "edit",
+    "insert_after_symbol" => "edit",
+    "insert_before_symbol" => "edit",
+    "rename_symbol" => "edit",
+    "safe_delete_symbol" => "edit"
+  }
 
   @typedoc "A normalised gate request."
   @type t :: %{
@@ -78,8 +96,8 @@ defmodule AshAgentTools.Gate.Request do
       "claude_code",
       tool,
       input["command"],
-      [input["file_path"], input["notebook_path"]],
-      payload["cwd"],
+      [input["file_path"], input["notebook_path"], input["relative_path"]],
+      input["cwd"] || payload["cwd"],
       payload["session_id"],
       config
     )
@@ -92,8 +110,8 @@ defmodule AshAgentTools.Gate.Request do
       "opencode",
       tool,
       args["command"],
-      [args["filePath"] | patch_paths(args["patchText"])],
-      args["workdir"] || payload["directory"],
+      [args["filePath"], args["relative_path"] | patch_paths(args["patchText"])],
+      args["workdir"] || args["cwd"] || payload["directory"],
       payload["sessionID"],
       config
     )
@@ -126,18 +144,16 @@ defmodule AshAgentTools.Gate.Request do
       paths: paths,
       cwd: cwd,
       repo: repo,
-      targets: Enum.map(paths, &target(&1, cwd, repo, config)),
+      targets: Enum.map(paths, &target(&1, cwd, config)),
       session_id: string_or_nil(session_id)
     }
   end
 
-  defp target(path, cwd, repo, config) do
+  # Each path is classified by its own nearest repository: a worktree nested
+  # inside the command's repository is a repository of its own.
+  defp target(path, cwd, config) do
     absolute = expand(path, cwd)
-
-    repo =
-      if repo.root && String.starts_with?(absolute, repo.root <> "/"),
-        do: repo,
-        else: repo_for(Path.dirname(absolute), config)
+    repo = repo_for(Path.dirname(absolute), config)
 
     case repo.root do
       nil -> %{path: absolute, kind: nil}
@@ -147,15 +163,27 @@ defmodule AshAgentTools.Gate.Request do
 
   @doc """
   The tool's gate name: lower-cased, with the editing tools folded into
-  `"edit"`.
+  `"edit"` and the MCP tools that do what a built-in does folded into it
+  (see the moduledoc).
   """
   @spec tool_name(term()) :: String.t()
   def tool_name(tool) when is_binary(tool) do
     name = String.downcase(tool)
-    if name in @edit_tools, do: "edit", else: name
+
+    cond do
+      name in @edit_tools -> "edit"
+      folded = mcp_tool(name) -> folded
+      true -> name
+    end
   end
 
   def tool_name(_tool), do: ""
+
+  defp mcp_tool(name) do
+    Enum.find_value(@mcp_tools, fn {tool, folded} ->
+      if String.ends_with?(name, "_" <> tool), do: folded
+    end)
+  end
 
   # opencode's patch tool names its files in the patch text itself.
   defp patch_paths(text) when is_binary(text) do
@@ -167,29 +195,120 @@ defmodule AshAgentTools.Gate.Request do
   defp patch_paths(_text), do: []
 
   @doc """
-  The directory a shell command acts in: a leading `cd DIR &&` (or `;`),
-  then a `git -C DIR` inside what follows, relative to `cwd`.
+  The directory a shell command acts in: `cwd`, changed by each `cd DIR`
+  the command runs (at the start, after a separator or inside a
+  subshell), then a `git -C DIR` inside it. A directory the shell would
+  compute (`$(...)`, a backtick, a variable other than `$HOME`) is not
+  known before the command runs, so the answer is `nil`, which no
+  repository kind matches.
   """
   @spec subject_dir(String.t() | nil, String.t() | nil) :: String.t() | nil
   def subject_dir(nil, cwd), do: cwd
 
   def subject_dir(command, cwd) do
-    {dir, rest} =
-      case Regex.run(~r/\A\s*cd\s+(#{word()})\s*(?:&&|;)(.*)\z/s, command) do
-        [_, dir, rest] -> {expand(unquote_word(dir), cwd), rest}
-        _ -> {cwd, command}
-      end
+    command = command_input(command)
 
-    case Regex.run(~r/(?:\A|[\s;&|(])git\s+-C\s+(#{word()})/, rest) do
-      [_, git_dir] -> expand(unquote_word(git_dir), dir)
+    dir =
+      ~r/(?:\A|[;&|(`])\s*cd\s+(#{word()})/
+      |> Regex.scan(command, capture: :all_but_first)
+      |> Enum.reduce(cwd, fn [word], dir -> resolve(word, dir) end)
+
+    case Regex.run(~r/(?:\A|[\s;&|(`])git(?:\s+-c\s+\S+|\s+--\S+)*\s+-C\s+(#{word()})/, command) do
+      [_, git_dir] -> resolve(git_dir, dir)
       _ -> dir
     end
   end
 
   defp word, do: ~S/"[^"]*"|'[^']*'|[^\s;&|]+/
 
+  defp resolve(_word, nil), do: nil
+
+  defp resolve(word, dir) do
+    path =
+      word
+      |> unquote_word()
+      |> String.replace(~r/\A(~|\$HOME|\$\{HOME\})(?=\/|\z)/, System.user_home() || "~")
+
+    if String.contains?(path, ["$", "`", "(", ")"]), do: nil, else: expand(path, dir)
+  end
+
   defp unquote_word(<<q, rest::binary>>) when q in [?", ?'], do: String.slice(rest, 0..-2//1)
   defp unquote_word(word), do: word
+
+  @doc """
+  The command as the tables read it (their `command` input). The shell's
+  own spellings of a plain command are written plainly, so one pattern
+  matches them all:
+
+    * `$IFS` and `${IFS}` are a space, and a backslash-newline is one;
+    * a newline outside quotes separates commands, so it is a `;`; the
+      body of a here-document is data, so it is dropped;
+    * quotes around a word without spaces or shell characters are
+      dropped (`"--force"` is `--force`, `g"i"t` is `git`), and so is a
+      backslash before a letter, a digit or a dash.
+
+  Quoted text with spaces or shell characters is kept as it is.
+  """
+  @spec command_input(String.t() | nil) :: String.t()
+  def command_input(nil), do: ""
+
+  def command_input(command) do
+    command
+    |> String.replace(~r/\$\{IFS\}|\$IFS(?![A-Za-z0-9_])|\\\r?\n/, " ")
+    |> separate_lines()
+    |> String.replace(~r/"([A-Za-z0-9_.\/:@%+=,~-]*)"|'([A-Za-z0-9_.\/:@%+=,~-]*)'/, "\\1\\2")
+    |> String.replace(~r/\\([A-Za-z0-9-])/, "\\1")
+  end
+
+  # Newlines outside quotes become `;`; here-document bodies are dropped.
+  defp separate_lines(command), do: scan(command, :plain, [], [])
+
+  defp scan("", _state, _heredocs, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp scan(<<"\\", c::utf8, rest::binary>>, state, heredocs, acc) when state != :single,
+    do: scan(rest, state, heredocs, [<<c::utf8>>, "\\" | acc])
+
+  defp scan(<<"'", rest::binary>>, :plain, h, acc), do: scan(rest, :single, h, ["'" | acc])
+  defp scan(<<"'", rest::binary>>, :single, h, acc), do: scan(rest, :plain, h, ["'" | acc])
+  defp scan(<<"\"", rest::binary>>, :plain, h, acc), do: scan(rest, :double, h, ["\"" | acc])
+  defp scan(<<"\"", rest::binary>>, :double, h, acc), do: scan(rest, :plain, h, ["\"" | acc])
+
+  defp scan(<<"<<", rest::binary>> = text, :plain, heredocs, acc) do
+    case Regex.run(~r/\A<<(-?)\s*(["']?)([A-Za-z_][A-Za-z0-9_]*)\2/, text) do
+      [whole, dash, _quote, delimiter] ->
+        rest = binary_part(text, byte_size(whole), byte_size(text) - byte_size(whole))
+        scan(rest, :plain, heredocs ++ [{delimiter, dash == "-"}], [whole | acc])
+
+      _ ->
+        scan(rest, :plain, heredocs, ["<<" | acc])
+    end
+  end
+
+  defp scan(<<"\n", rest::binary>>, :plain, heredocs, acc),
+    do: scan(skip_heredocs(rest, heredocs), :plain, [], [";" | acc])
+
+  defp scan(<<c::utf8, rest::binary>>, state, heredocs, acc),
+    do: scan(rest, state, heredocs, [<<c::utf8>> | acc])
+
+  defp scan(<<byte, rest::binary>>, state, heredocs, acc),
+    do: scan(rest, state, heredocs, [<<byte>> | acc])
+
+  defp skip_heredocs(text, []), do: text
+
+  defp skip_heredocs(text, [{delimiter, strip_tabs?} | more]) do
+    {_body, rest} = take_body(String.split(text, "\n"), delimiter, strip_tabs?)
+    skip_heredocs(rest, more)
+  end
+
+  defp take_body([], _delimiter, _strip), do: {[], ""}
+
+  defp take_body([line | lines], delimiter, strip_tabs?) do
+    line = if strip_tabs?, do: String.trim_leading(line, "\t"), else: line
+
+    if String.trim_trailing(line, "\r") == delimiter,
+      do: {[], Enum.join(lines, "\n")},
+      else: take_body(lines, delimiter, strip_tabs?)
+  end
 
   defp expand(path, base) do
     path = String.replace(path, ~r/\A(~|\$HOME|\$\{HOME\})(?=\/|\z)/, System.user_home() || "~")

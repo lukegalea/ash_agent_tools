@@ -373,7 +373,9 @@ the repository's own rules written as DMN decision tables, and answers
 `allow`, `ask`, `deny` or `defer` with the rule and its reason. The
 generic seed (`priv/gate/agent_gate_rules.dmn`) refuses force pushes,
 pushes from a community fork, `--no-verify` and killing processes by
-pattern, and asks before a push from a repository it cannot classify. A
+pattern, asks before a push from a repository it cannot classify, and
+asks before an MCP tool that evaluates code (shell and file-writing MCP
+tools meet the same rules as `Bash` and `Edit`). A
 host adds its own rules in `priv/decisions/agent_gate_rules.dmn`, which is
 asked first. Evaluation is `ash_decisions`' dry evaluation (no
 `Evaluation` row); the tables pass its verifier (`mix ash_agent.gate

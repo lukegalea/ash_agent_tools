@@ -15,9 +15,16 @@ and answers "defer": no deterministic rule spoke, so the call goes on to the
 harness's own permissions (or a later rung). That rule is what makes the table
 complete.
 
+A command is matched at a command position: the start, after a separator
+(; &amp; | a newline, which AshAgentTools.Gate.Request.command_input/1 writes as ;),
+inside a subshell or a substitution, and after environment assignments and
+wrappers (sudo, env, timeout N, nohup, nice, time, exec, command); git's
+global options (-C, -c, -\-no-pager and the like) may stand before its
+subcommand. The patterns still read text, not a parsed shell.
+
 Inputs, as AshAgentTools.Gate normalises them:
-  tool       "bash" | "edit" | "write" | "read" | another tool's lower-cased name
-  command    the shell command, for "bash"; "" otherwise
+  tool       "bash" | "edit" | "write" | "read" | "eval" | another tool's lower-cased name
+  command    the shell command, for "bash", as Request.command_input/1 writes it; "" otherwise
   path       one path the call touches, relative to its repository root; "" for none
   repo_kind  "first_party" | "community_fork" | "private"; null when unclassified
 -->
@@ -53,16 +60,16 @@ Inputs, as AshAgentTools.Gate normalises them:
         <inputExpression id="expr_repo_kind" typeRef="string"><text>repo_kind</text></inputExpression>
       </input>
       <input id="clause_pushes" label="Pushes">
-        <inputExpression id="expr_pushes" typeRef="boolean"><text>matches(command, "(^|[;&amp;|(]\s*)git(\s+-C\s+\S+)?\s+push(\s|$)")</text></inputExpression>
+        <inputExpression id="expr_pushes" typeRef="boolean"><text>matches(command, "(^|[;&amp;|(`])\s*((sudo|env|exec|command|nohup|nice|time|builtin)(\s+-\S+)*\s+|timeout(\s+-\S+)*\s+\S+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git(\s+(-C|-c|--git-dir|--work-tree|--namespace)\s+(\$\([^)]*\)|`[^`]*`|\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+|\s+-[A-Za-z]+|\s+--[A-Za-z][A-Za-z0-9-]*(=(\$\([^)]*\)|`[^`]*`|\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+)?)*\s+push(\s|$)")</text></inputExpression>
       </input>
       <input id="clause_force_push" label="Force-pushes">
-        <inputExpression id="expr_force_push" typeRef="boolean"><text>matches(command, "git(\s+-C\s+\S+)?\s+push(\s+[^;&amp;|]*)?\s+(-[A-Za-z]*f[A-Za-z]*(\s|$)|--force(-with-lease)?(\s|=|$)|\+\S)")</text></inputExpression>
+        <inputExpression id="expr_force_push" typeRef="boolean"><text>matches(command, "(^|[\s;&amp;|(`'\x22])git(\s+(-C|-c|--git-dir|--work-tree|--namespace)\s+(\$\([^)]*\)|`[^`]*`|\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+|\s+-[A-Za-z]+|\s+--[A-Za-z][A-Za-z0-9-]*(=(\$\([^)]*\)|`[^`]*`|\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+)?)*\s+push(\s+(\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+)*\s+(-[A-Za-z]*f[A-Za-z]*(\s|$)|--force(-with-lease|-if-includes)?(\s|=|$)|\+\S)")</text></inputExpression>
       </input>
       <input id="clause_no_verify" label="Skips hooks">
-        <inputExpression id="expr_no_verify" typeRef="boolean"><text>matches(command, "git(\s+-C\s+\S+)?\s+(commit|push|merge|rebase)\s[^;&amp;|]*--no-verify")</text></inputExpression>
+        <inputExpression id="expr_no_verify" typeRef="boolean"><text>matches(command, "(^|[\s;&amp;|(`'\x22])git(\s+(-C|-c|--git-dir|--work-tree|--namespace)\s+(\$\([^)]*\)|`[^`]*`|\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+|\s+-[A-Za-z]+|\s+--[A-Za-z][A-Za-z0-9-]*(=(\$\([^)]*\)|`[^`]*`|\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+)?)*\s+((commit|push|merge|rebase|am|cherry-pick|revert|pull)(\s+(\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+)*\s+--no-verify|commit(\s+(\x22[^\x22]*\x22|'[^']*'|[^\s;&amp;|\x22'])+)*\s+-[A-Za-z]*n[A-Za-z]*)(\s|$)")</text></inputExpression>
       </input>
       <input id="clause_kill_by_pattern" label="Kills by pattern">
-        <inputExpression id="expr_kill_by_pattern" typeRef="boolean"><text>matches(command, "(^\s*|[;&amp;|(]\s*|sudo\s+)(pkill|killall)(\s|$)")</text></inputExpression>
+        <inputExpression id="expr_kill_by_pattern" typeRef="boolean"><text>matches(command, "(^|[;&amp;|(`])\s*((sudo|env|exec|command|nohup|nice|time|builtin)(\s+-\S+)*\s+|timeout(\s+-\S+)*\s+\S+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(pkill|killall)(\s|$)|(^|[;&amp;|(`])\s*((sudo|env|exec|command|nohup|nice|time|builtin)(\s+-\S+)*\s+|timeout(\s+-\S+)*\s+\S+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*kill\s[^;&amp;|]*(\$\(|`)\s*pgrep(\s|$)|pgrep\s[^;&amp;]*\|\s*xargs(\s+-\S+)*\s+kill(\s|$)")</text></inputExpression>
       </input>
       <output id="out_decision" name="decision" label="Decision" typeRef="string">
         <outputValues id="out_decision_values"><text>"allow","ask","deny","defer"</text></outputValues>
@@ -133,6 +140,19 @@ Inputs, as AshAgentTools.Gate normalises them:
         <outputEntry id="gate_push_unclassified_decision"><text>"ask"</text></outputEntry>
         <outputEntry id="gate_push_unclassified_rule_id"><text>"gate_push_unclassified"</text></outputEntry>
         <outputEntry id="gate_push_unclassified_reason"><text>"The gate could not tell what kind of repository this push leaves from: classify its remote in .agents/gate.json."</text></outputEntry>
+      </rule>
+
+      <rule id="gate_eval">
+        <description>A tool that evaluates code in the project (an MCP eval tool) can do anything a shell can, and no command pattern can read it: a person decides. Source: the gate reads text and is no security boundary; unknown never folds into allow.</description>
+        <inputEntry id="gate_eval_tool"><text>"eval"</text></inputEntry>
+        <inputEntry id="gate_eval_repo_kind"><text>-</text></inputEntry>
+        <inputEntry id="gate_eval_pushes"><text>-</text></inputEntry>
+        <inputEntry id="gate_eval_force_push"><text>-</text></inputEntry>
+        <inputEntry id="gate_eval_no_verify"><text>-</text></inputEntry>
+        <inputEntry id="gate_eval_kill_by_pattern"><text>-</text></inputEntry>
+        <outputEntry id="gate_eval_decision"><text>"ask"</text></outputEntry>
+        <outputEntry id="gate_eval_rule_id"><text>"gate_eval"</text></outputEntry>
+        <outputEntry id="gate_eval_reason"><text>"This tool evaluates code, which the gate's patterns cannot read: a person decides."</text></outputEntry>
       </rule>
 
       <rule id="gate_no_rule">

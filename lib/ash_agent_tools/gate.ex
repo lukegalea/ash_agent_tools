@@ -21,6 +21,11 @@ defmodule AshAgentTools.Gate do
   per path and the strictest answer wins (`deny`, then `ask`, then `defer`,
   then `allow`).
 
+  The tables read the command as `AshAgentTools.Gate.Request.command_input/1`
+  writes it, with the shell's own spellings of a plain command written
+  plainly (`$IFS` as a space, a newline as `;`, `"--force"` as `--force`),
+  and each path relative to its own nearest repository.
+
   Each table has hit policy `FIRST`, outputs `decision` (`allow | ask | deny
   | defer`), `rule_id` and `reason`, and ends with a rule that matches
   everything and defers, which is what makes it complete. `verify/1` runs
@@ -286,7 +291,7 @@ defmodule AshAgentTools.Gate do
     |> Enum.map(fn %{path: path, kind: kind} ->
       inputs = %{
         "tool" => request.tool,
-        "command" => request.command || "",
+        "command" => Request.command_input(request.command),
         "path" => path,
         "repo_kind" => kind
       }

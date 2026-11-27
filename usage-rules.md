@@ -319,8 +319,26 @@ It needs the optional `ash_decisions` dep; no model is called.
   evaluable nor provable.
 - **Patterns:** absent `command` and `path` are `""`, so every pattern
   sees a string. Anchor a narrow allow on the whole command (`^...$`), so a
-  compound command falls through to the refusal. `.` does not cross a
-  newline; avoid `.` inside a character class.
+  compound command falls through to the refusal, and keep its arguments
+  to plain path characters (no `$`, backtick or parentheses), so a
+  substitution never rides inside an allowed command. `.` does not cross
+  a newline; avoid `.` inside a character class.
+- **What the patterns read:** the command as `Request.command_input/1`
+  writes it: `$IFS` is a space, a newline outside quotes is `;`, a
+  here-document body is dropped, and quotes around a plain word are
+  dropped (`"--force"` is `--force`). Match a command at a command
+  position (the start, `;`, `&`, `|`, `(`, a backtick) and allow the
+  prefixes that leave it the same command (assignments, `env`, `timeout
+  N`, git's global options); the seed's columns show how.
+- **Tools:** MCP tools that do what a built-in does fold into it by name:
+  a shell tool is `bash`, a file-writing tool is `edit` (its
+  `relative_path` is the path), and a code-evaluating tool is `eval`,
+  which the seed asks about. Each path is relative to its own nearest
+  repository, so a worktree nested in the checkout has its own root.
+- **Directories:** the repository a command acts in follows its `cd`s
+  (also inside a subshell) and `git -C`; one the shell would compute
+  (`$(...)`, a backtick, a variable other than `$HOME`) is unknown, so
+  its kind is `null`.
 - **Repository kind** comes from git remotes and `.agents/gate.json`
   (`first_party`, `private`, `community_fork` lists of regular
   expressions over the `origin` URL; a remote named `upstream` makes a
