@@ -58,9 +58,15 @@ defmodule AshAgentTools.GateTest do
 
     git.(["worktree", "add", "-q", "--detach", worktree])
 
+    # A worktree nested inside the repository, where a session whose cwd is the
+    # outer checkout edits files.
+    nested = Path.join(root, "nested/wt")
+    git.(["worktree", "add", "-q", "--detach", nested])
+
     %{
       root: root,
       worktree: worktree,
+      nested: nested,
       fork:
         repo.("fork", [
           {"origin", "https://example.test/first/fork.git"},
@@ -200,6 +206,178 @@ defmodule AshAgentTools.GateTest do
       result = Gate.explain(payload, root: ctx.root, tables: tables)
       assert decision(result) == {"deny", "host_vendored"}
       assert result.path == "vendored/x.json"
+    end
+  end
+
+  describe "the shell's other spellings of a refused act" do
+    test "a force push behind git's global options, a quote or an assignment is denied", ctx do
+      for command <- [
+            "git -c x=y push --force origin main",
+            "git --no-pager push -f origin main",
+            ~S(git push "--force" origin main),
+            "git push origin main --force",
+            "FOO=1 git push -f origin main",
+            "git${IFS}push${IFS}-f${IFS}origin${IFS}main",
+            "git -C $(echo${IFS}/tmp) push -f origin HEAD:refs/heads/x",
+            "ls\ngit push -f origin main"
+          ] do
+        assert decision(bash(ctx, command)) == {"deny", "gate_force_push"}, command
+      end
+    end
+
+    test "skipping hooks with -n or after a quoted separator is denied", ctx do
+      for command <- [
+            "git commit -n -m wip",
+            "git commit -anm wip",
+            ~S(git commit -m "a; b" --no-verify),
+            "git -c core.x=y commit --no-verify -m x"
+          ] do
+        assert decision(bash(ctx, command)) == {"deny", "gate_no_verify"}, command
+      end
+
+      for command <- [
+            "git commit --no-edit",
+            "git push -n origin main",
+            "git commit --amend -m x"
+          ] do
+        assert decision(bash(ctx, command)) == {"defer", "gate_no_rule"}, command
+      end
+    end
+
+    test "killing by pattern behind a prefix, a newline or a substitution is denied", ctx do
+      for command <- [
+            "FOO=1 pkill -f beam",
+            "timeout 5 pkill -f beam",
+            "env -i pkill -f beam",
+            "printf x; pkill${IFS}-f${IFS}beam",
+            "kill $(pgrep -f phx.server)",
+            "kill -9 `pgrep beam`",
+            "pgrep -f beam | xargs kill",
+            "ls\npkill -f beam",
+            "echo $(pkill -f beam)"
+          ] do
+        assert decision(bash(ctx, command)) == {"deny", "gate_kill_by_pattern"}, command
+      end
+
+      for command <- [
+            "kill $(lsof -ti :4000)",
+            "pgrep -f beam",
+            "cat > stop.sh <<'EOF'\npkill -f beam\nEOF\nls",
+            "cat <<-EOF\n\tkillall x\n\tEOF"
+          ] do
+        assert decision(bash(ctx, command)) == {"defer", "gate_no_rule"}, command
+      end
+    end
+
+    test "a push from a fork is denied however the command gets there", ctx do
+      for {command, cwd} <- [
+            {"(cd #{ctx.fork} && git push origin main)", ctx.root},
+            {"ls && cd #{ctx.fork} && git push origin main", ctx.root},
+            {"FOO=1 git push origin main", ctx.fork},
+            {"git --no-pager push origin main", ctx.fork}
+          ] do
+        assert decision(bash(ctx, command, cwd)) == {"deny", "gate_fork_push"}, command
+      end
+    end
+
+    test "a directory the shell would compute is not known, so a push from it asks", ctx do
+      for command <- [
+            "git -C $(echo${IFS}#{ctx.fork}) push origin main",
+            "git -C `echo #{ctx.fork}` push origin main",
+            "cd $(dirname #{ctx.fork}/x) && git push origin main"
+          ] do
+        assert decision(bash(ctx, command)) == {"ask", "gate_push_unclassified"}, command
+      end
+    end
+
+    test "the command the tables read" do
+      assert Request.command_input("git${IFS}push$IFS-f") == "git push -f"
+      assert Request.command_input(~S(g"i"t push '--force' \-f)) == "git push --force -f"
+      assert Request.command_input(~S(git commit -m "a; b")) == ~S(git commit -m "a; b")
+      assert Request.command_input("ls\npwd") == "ls;pwd"
+      assert Request.command_input("echo \"a\nb\"") == "echo \"a\nb\""
+      assert Request.command_input("cat <<'EOF' > x\npkill\nEOF\nls") == "cat <<EOF > x;ls"
+      assert Request.command_input("ls \\\n -la") == "ls   -la"
+      assert Request.command_input(nil) == ""
+    end
+
+    test "the directory a command acts in, through subshells and substitutions" do
+      assert Request.subject_dir("(cd /b && git push)", "/a") == "/b"
+      assert Request.subject_dir("ls && cd /b && cd c; git push", "/a") == "/b/c"
+      assert Request.subject_dir("git -c x=y -C /c push", "/a") == "/c"
+      assert Request.subject_dir("git -C $(echo /c) push", "/a") == nil
+      assert Request.subject_dir("cd `pwd` && git push", "/a") == nil
+      assert Request.subject_dir("cd $HOME/x && ls", "/a") == Path.join(System.user_home(), "x")
+    end
+  end
+
+  describe "paths in a nested worktree" do
+    test "are relative to the worktree, not to the checkout around it", ctx do
+      tables = [@host_table, Gate.seed_table()]
+
+      payload = %{
+        "hook_event_name" => "PreToolUse",
+        "tool_name" => "Write",
+        "cwd" => ctx.root,
+        "tool_input" => %{"file_path" => Path.join(ctx.nested, "vendored/x.json")}
+      }
+
+      result = Gate.explain(payload, root: ctx.root, tables: tables)
+      assert decision(result) == {"deny", "host_vendored"}
+      assert result.path == "vendored/x.json"
+      assert [%{path: "vendored/x.json", kind: "first_party"}] = result.request.targets
+    end
+  end
+
+  describe "MCP tools that do what a built-in does" do
+    test "fold into bash, edit or eval by the tool's own name" do
+      assert Request.tool_name("mcp__serena__execute_shell_command") == "bash"
+      assert Request.tool_name("serena_execute_shell_command") == "bash"
+      assert Request.tool_name("mcp__tidewave__project_eval") == "eval"
+      assert Request.tool_name("mcp__serena__create_text_file") == "edit"
+      assert Request.tool_name("mcp__serena__replace_content") == "edit"
+      assert Request.tool_name("mcp__serena__find_symbol") == "mcp__serena__find_symbol"
+    end
+
+    test "a shell tool's command and a file tool's path meet the same rules", ctx do
+      tables = [@host_table, Gate.seed_table()]
+
+      shell = %{
+        "hook_event_name" => "PreToolUse",
+        "tool_name" => "mcp__serena__execute_shell_command",
+        "cwd" => ctx.root,
+        "tool_input" => %{"command" => "git push --force origin main"}
+      }
+
+      assert decision(Gate.explain(shell, root: ctx.root, tables: tables)) ==
+               {"deny", "gate_force_push"}
+
+      in_fork =
+        put_in(shell, ["tool_input"], %{"command" => "git push origin main", "cwd" => ctx.fork})
+
+      assert decision(Gate.explain(in_fork, root: ctx.root, tables: tables)) ==
+               {"deny", "gate_fork_push"}
+
+      write = %{
+        "hook_event_name" => "PreToolUse",
+        "tool_name" => "mcp__serena__create_text_file",
+        "cwd" => ctx.root,
+        "tool_input" => %{"relative_path" => "vendored/x.json", "content" => "{}"}
+      }
+
+      assert decision(Gate.explain(write, root: ctx.root, tables: tables)) ==
+               {"deny", "host_vendored"}
+    end
+
+    test "an eval tool asks: no command pattern can read the code", ctx do
+      eval = %{
+        "hook_event_name" => "PreToolUse",
+        "tool_name" => "mcp__tidewave__project_eval",
+        "cwd" => ctx.root,
+        "tool_input" => %{"code" => ~S|System.cmd("git", ["push", "-f", "origin", "main"])|}
+      }
+
+      assert decision(Gate.explain(eval, root: ctx.root)) == {"ask", "gate_eval"}
     end
   end
 
